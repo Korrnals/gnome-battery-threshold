@@ -1,0 +1,11 @@
+[Unit]
+Description=Battery Charge Threshold for Xiaomi RedmiBook Pro 16 2025
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/battery-threshold-backend.py set 0 70 1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
