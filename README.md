@@ -47,22 +47,38 @@ A GNOME Shell extension for managing laptop battery charge thresholds. Prolongs 
 
 ## 📦 Installation
 
-### From source
+> **Full guide:** [docs/INSTALL.md](docs/INSTALL.md) — covers distro-specific
+> dependencies, Fedora Silverblue/Kinoite, `acpi_call` kernel module setup,
+> step-by-step verification, and troubleshooting.
+
+### Quick start
 
 ```bash
 git clone https://github.com/Korrnals/gnome-battery-threshold.git
 cd gnome-battery-threshold
+
+# 1. Check what's detected on your system (no root needed):
+make doctor
+
+# 2. Install build dependencies — see make deps for guidance:
+make deps
+
+# 3. Build (no root):
 make build
+
+# 4. Install & start daemon:
 sudo make install
-```
 
-### Enable the extension
-
-```bash
+# 5. Log out and back into GNOME, then enable the extension:
 gnome-extensions enable battery-threshold@korrnals.github.io
 ```
 
-Then log out and log back in (or restart the shell with `Alt+F2` → `r` on X11).
+**Xiaomi / ThinkPad users:** read [Step 2 in the install guide](docs/INSTALL.md#step-2--install-kernel-module-xiaomi--thinkpad)
+before building — you need the `acpi_call` kernel module.
+
+**Fedora Silverblue / Kinoite:** the Makefile auto-detects an immutable `/usr`
+and installs to `/usr/local` — no manual flags needed.
+See [immutable systems section](docs/INSTALL.md#immutable-systems-fedora-silverblue--kinoite).
 
 ## 🚀 Usage
 
