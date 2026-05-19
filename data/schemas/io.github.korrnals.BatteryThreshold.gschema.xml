@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="battery-threshold">
+  <schema id="io.github.korrnals.BatteryThreshold"
+          path="/io/github/korrnals/battery-threshold/">
+    <key name="enabled" type="b">
+      <default>false</default>
+      <summary>Threshold control enabled</summary>
+      <description>Whether the daemon should enforce charge thresholds.</description>
+    </key>
+    <key name="threshold-start" type="i">
+      <default>30</default>
+      <range min="0" max="90"/>
+      <summary>Start threshold (%)</summary>
+      <description>Battery starts charging below this level.</description>
+    </key>
+    <key name="threshold-end" type="i">
+      <default>70</default>
+      <range min="10" max="100"/>
+      <summary>End threshold (%)</summary>
+      <description>Battery stops charging at this level.</description>
+    </key>
+  </schema>
+</schemalist>

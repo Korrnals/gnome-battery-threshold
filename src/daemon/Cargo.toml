@@ -1,0 +1,33 @@
+[package]
+name = "battery-thresholdd"
+version = "0.1.0"
+edition = "2021"
+description = "D-Bus daemon for controlling laptop battery charge thresholds"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Korrnals/gnome-battery-threshold"
+readme = "../../README.md"
+rust-version = "1.75"
+
+[[bin]]
+name = "battery-thresholdd"
+path = "main.rs"
+
+[dependencies]
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "signal", "fs", "sync", "time", "process"] }
+zbus = { version = "4.4", default-features = false, features = ["tokio"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+
+[dev-dependencies]
+tempfile = "3.10"
+tokio = { version = "1.36", features = ["test-util", "macros", "rt"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = true

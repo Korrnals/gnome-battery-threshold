@@ -1,0 +1,32 @@
+[Unit]
+Description=Battery Threshold Daemon
+Documentation=https://github.com/Korrnals/gnome-battery-threshold
+After=dbus.socket sysinit.target
+Requires=dbus.socket
+
+[Service]
+Type=dbus
+BusName=io.github.korrnals.BatteryThreshold
+ExecStart=/usr/libexec/battery-thresholdd
+Restart=on-failure
+RestartSec=5s
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=no
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+ReadWritePaths=/sys/class/power_supply /proc/acpi /var/lib/battery-thresholdd
+StateDirectory=battery-thresholdd
+
+[Install]
+WantedBy=multi-user.target
+Also=dbus.socket

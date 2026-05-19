@@ -1,25 +1,24 @@
-# Rust
-battery-thresholdd/target/
-battery-thresholdd/Cargo.lock
-*.rs.bk
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-
-# Build outputs
+# Build artifacts
+target/
+**/target/
 dist/
 *.zip
+Cargo.lock
 
-# IDE
+# Rust
+**/*.rs.bk
+
+# Editors / IDE
 .vscode/
 .idea/
+.history/
 *.swp
 *.swo
 *~
+
+# Python (any helpers/scripts)
+__pycache__/
+*.py[cod]
 
 # OS
 .DS_Store
@@ -28,8 +27,6 @@ Thumbs.db
 # Logs
 *.log
 
-# Temporary files
-tmp/
-temp/
-.history/
-.history/
+# Local state / agent caches
+.claude/
+.mcp.json

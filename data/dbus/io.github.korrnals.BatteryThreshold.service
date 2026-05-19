@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=io.github.korrnals.BatteryThreshold
+Exec=/usr/libexec/battery-thresholdd
+User=root
+SystemdService=battery-thresholdd.service
