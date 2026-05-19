@@ -1,12 +1,10 @@
+# Battery Threshold
+
+A GNOME Shell extension for managing laptop battery charge thresholds. Prolongs battery life by limiting maximum charge level.
+
 <div align="center">
 
-```
-╔══════════════════════════════════════════════════════════════╗
-║   🔋  Battery Threshold  ·  GNOME Shell Extension           ║
-║   ──────────────────────────────────────────────────────    ║
-║   Keep your battery healthy. Set it. Forget it.             ║
-╚══════════════════════════════════════════════════════════════╝
-```
+<img src="docs/banner.svg" alt="Battery Threshold banner" width="860"/>
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -15,10 +13,6 @@
 [![Made with ❤️ by Korrnals](https://img.shields.io/badge/made%20by-Korrnals-blueviolet)](https://github.com/Korrnals)
 
 </div>
-
-# Battery Threshold
-
-A GNOME Shell extension for managing laptop battery charge thresholds. Prolongs battery life by limiting maximum charge level.
 
 ## ✨ Features
 
