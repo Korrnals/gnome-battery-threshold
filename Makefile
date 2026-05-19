@@ -276,11 +276,12 @@ daemon:
 
 extension:
 	@printf "$(C_INFO)▸ Preparing extension bundle$(C_RESET)\n"
-	@mkdir -p $(BUILD_DIR)/extension/schemas
+	@mkdir -p $(BUILD_DIR)/extension/schemas $(BUILD_DIR)/extension/icons
 	@cp src/extension/extension.js   $(BUILD_DIR)/extension/
 	@cp src/extension/prefs.js       $(BUILD_DIR)/extension/
 	@cp src/extension/metadata.json  $(BUILD_DIR)/extension/
 	@cp src/extension/stylesheet.css $(BUILD_DIR)/extension/
+	@cp src/extension/icons/*.svg    $(BUILD_DIR)/extension/icons/
 	@cp data/schemas/*.gschema.xml   $(BUILD_DIR)/extension/schemas/
 	@glib-compile-schemas $(BUILD_DIR)/extension/schemas
 

@@ -19,5 +19,11 @@
       <summary>End threshold (%)</summary>
       <description>Battery stops charging at this level.</description>
     </key>
+    <key name="show-indicator" type="b">
+      <default>true</default>
+      <summary>Show indicator in top bar</summary>
+      <description>If false, the panel icon is hidden. Settings remain
+      accessible from the Extensions app.</description>
+    </key>
   </schema>
 </schemalist>

@@ -3,3 +3,18 @@
 .battery-threshold-indicator {
     padding: 0 4px;
 }
+
+.battery-threshold-icon {
+    icon-size: 16px;
+    -st-icon-style: symbolic;
+    opacity: 0.85;
+}
+
+.battery-threshold-icon:active {
+    opacity: 1;
+    color: #57e389; /* GNOME green — thresholds enforced */
+}
+
+.battery-threshold-icon:disabled {
+    opacity: 0.4;
+}

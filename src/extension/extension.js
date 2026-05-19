@@ -74,15 +74,28 @@ class Indicator extends PanelMenu.Button {
         this._refreshSourceId = 0;
         this._signalIds = [];
 
-        // Panel icon
+        // Panel icon — custom SVG bundled with the extension
+        this._iconFile = Gio.File.new_for_path(
+            `${extension.path}/icons/battery-threshold-symbolic.svg`);
         this._icon = new St.Icon({
-            icon_name: 'battery-good-symbolic',
-            style_class: 'system-status-icon',
+            gicon: Gio.FileIcon.new(this._iconFile),
+            style_class: 'system-status-icon battery-threshold-icon',
         });
         this.add_child(this._icon);
 
+        // Visibility follows show-indicator setting
+        this._visibilityHandlerId = this._settings.connect(
+            'changed::show-indicator',
+            () => this._applyVisibility(),
+        );
+        this._applyVisibility();
+
         this._buildMenu();
         this._connectProxy();
+    }
+
+    _applyVisibility() {
+        this.visible = this._settings.get_boolean('show-indicator');
     }
 
     _buildMenu() {
@@ -204,9 +217,11 @@ class Indicator extends PanelMenu.Button {
         if (!this._supported) {
             this._statusItem.label.text = _('Not supported on this device');
             this._setControlsSensitive(false);
-            this._icon.icon_name = 'battery-missing-symbolic';
+            this._icon.remove_style_pseudo_class('active');
+            this._icon.add_style_pseudo_class('disabled');
             return;
         }
+        this._icon.remove_style_pseudo_class('disabled');
 
         const vendor = this._proxy.Vendor || 'generic';
         const start = this._proxy.Start ?? 0;
@@ -232,9 +247,10 @@ class Indicator extends PanelMenu.Button {
         this._startRow.valueLabel.text = `${start}%`;
         this._endRow.valueLabel.text = `${end}%`;
 
-        this._icon.icon_name = enabled
-            ? 'battery-charging-symbolic'
-            : 'battery-good-symbolic';
+        if (enabled)
+            this._icon.add_style_pseudo_class('active');
+        else
+            this._icon.remove_style_pseudo_class('active');
     }
 
     _setControlsSensitive(sensitive) {
@@ -295,6 +311,10 @@ class Indicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._visibilityHandlerId) {
+            this._settings.disconnect(this._visibilityHandlerId);
+            this._visibilityHandlerId = 0;
+        }
         if (this._refreshSourceId) {
             GLib.source_remove(this._refreshSourceId);
             this._refreshSourceId = 0;

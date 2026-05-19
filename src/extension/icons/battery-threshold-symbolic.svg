@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- battery body -->
+  <path d="M3 5c-.55 0-1 .45-1 1v4c0 .55.45 1 1 1h8c.55 0 1-.45 1-1V6c0-.55-.45-1-1-1H3zm0 1h8v4H3V6z" fill="currentColor"/>
+  <!-- positive terminal -->
+  <path d="M13 6.75h.75c.14 0 .25.11.25.25v2c0 .14-.11.25-.25.25H13z" fill="currentColor"/>
+  <!-- charge level up to ~70% -->
+  <rect x="3.5" y="6.5" width="5.2" height="3" fill="currentColor" opacity="0.55"/>
+  <!-- threshold marker (vertical line at 70%) -->
+  <rect x="8.7" y="5.5" width="0.6" height="5" fill="currentColor"/>
+</svg>

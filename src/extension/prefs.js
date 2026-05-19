@@ -68,6 +68,19 @@ export default class BatteryThresholdPreferences extends ExtensionPreferences {
                 settings.set_int('threshold-start', Math.max(0, e - 10));
         });
 
+        // ─── Appearance group ────────────────────────────────────────────
+        const appearanceGroup = new Adw.PreferencesGroup({
+            title: _('Appearance'),
+        });
+        page.add(appearanceGroup);
+
+        const showIndicatorRow = new Adw.SwitchRow({
+            title: _('Show indicator in top bar'),
+            subtitle: _('When disabled, settings remain available from the Extensions app.'),
+        });
+        appearanceGroup.add(showIndicatorRow);
+        settings.bind('show-indicator', showIndicatorRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+
         // ─── About group ─────────────────────────────────────────────────
         const aboutGroup = new Adw.PreferencesGroup({title: _('About')});
         page.add(aboutGroup);
