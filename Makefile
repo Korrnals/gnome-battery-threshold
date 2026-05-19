@@ -62,6 +62,7 @@ else
   HOST_EXEC  :=
 endif
 
+HOST_UID        := $(shell id -u $(REAL_USER) 2>/dev/null || echo 1000)
 EXTENSION_DIR   := $(REAL_HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
 CARGO           ?= cargo
@@ -107,8 +108,9 @@ else
 endif
 
 .PHONY: all help doctor deps build daemon extension schemas generate \
-        install install-system install-extension install-activate uninstall \
-        reload restart enable-extension test lint dist clean probe \
+        install install-system install-extension install-activate \
+        _try-enable-extension enable-extension uninstall \
+        reload restart test lint dist clean probe \
         daemon-dev check-root _check_installed \
         package-rpm package-deb package-tarball
 
@@ -311,12 +313,8 @@ else
 	fi
 endif
 
-install: build install-system install-extension install-activate
-	@printf "\n$(C_OK)✓ Installation complete.$(C_RESET)\n\n"
-	@printf "Final step (Wayland requires re-login):\n"
-	@printf "  • Log out & back into GNOME, then run:\n"
-	@printf "    $(C_BOLD)gnome-extensions enable $(UUID)$(C_RESET)\n"
-	@printf "  • Or set $(C_BOLD)NO_ACTIVATE=1$(C_RESET) to skip auto-enable of daemon.\n\n"
+install: build install-system install-extension install-activate _try-enable-extension
+	@printf "\n$(C_OK)✓ Installation complete.$(C_RESET)\n"
 	@printf "Tip: $(C_BOLD)make doctor$(C_RESET) to verify everything is in place.\n"
 
 # Activates the systemd unit unless NO_ACTIVATE=1 is set.
@@ -388,12 +386,63 @@ reload: check-root
 restart: reload
 
 enable-extension:
-	@if [ -z "$$DISPLAY$$WAYLAND_DISPLAY" ]; then \
-	    printf "$(C_WARN)No GUI session detected — run this from your GNOME session.$(C_RESET)\n"; \
-	    exit 1; \
-	fi
-	gnome-extensions enable $(UUID)
-	@printf "$(C_OK)✓ Extension enabled.$(C_RESET) If you don't see the icon, log out & back in.\n"
+	@_uid="$(HOST_UID)"; \
+	 _uuid="$(UUID)"; \
+	 _run="/run/user/$$_uid"; \
+	 printf "$(C_INFO)▸ Enabling GNOME extension$(C_RESET)\n"; \
+	 if $(HOST_EXEC) env \
+	         XDG_RUNTIME_DIR="$$_run" \
+	         DBUS_SESSION_BUS_ADDRESS="unix:path=$$_run/bus" \
+	         gnome-extensions enable "$$_uuid" 2>&1; then \
+	     printf "$(C_OK)✓ Extension enabled.$(C_RESET)\n"; \
+	 else \
+	     printf "$(C_WARN)⚠ Enable failed — if recently installed, log out & back in first, then retry.$(C_RESET)\n"; \
+	 fi
+
+# Internal: called by 'install'. Tries to enable the extension immediately via
+# D-Bus; if GNOME Shell has not scanned it yet (first install on Wayland) falls
+# back to pre-registering it in the GSettings enabled-extensions list so it
+# activates automatically on the next login.
+_try-enable-extension:
+	@_uid="$(HOST_UID)"; \
+	 _uuid="$(UUID)"; \
+	 _run="/run/user/$$_uid"; \
+	 printf "$(C_INFO)▸ Enabling GNOME extension$(C_RESET)\n"; \
+	 if $(HOST_EXEC) env \
+	         XDG_RUNTIME_DIR="$$_run" \
+	         DBUS_SESSION_BUS_ADDRESS="unix:path=$$_run/bus" \
+	         gnome-extensions enable "$$_uuid" 2>/dev/null; then \
+	     printf "$(C_OK)  ✓ Extension enabled$(C_RESET)\n"; \
+	 else \
+	     printf "$(C_INFO)  ℹ GNOME Shell hasn't scanned it yet — pre-registering in GSettings...$(C_RESET)\n"; \
+	     _cur=$$($(HOST_EXEC) env \
+	             XDG_RUNTIME_DIR="$$_run" \
+	             DBUS_SESSION_BUS_ADDRESS="unix:path=$$_run/bus" \
+	             gsettings get org.gnome.shell enabled-extensions 2>/dev/null \
+	             || echo "@as []"); \
+	     if printf '%s' "$$_cur" | grep -qF "$$_uuid"; then \
+	         printf "$(C_INFO)  ℹ Already in enabled-extensions list$(C_RESET)\n"; \
+	     elif printf '%s' "$$_cur" | grep -q "@as \[\]"; then \
+	         if $(HOST_EXEC) env \
+	                 XDG_RUNTIME_DIR="$$_run" \
+	                 DBUS_SESSION_BUS_ADDRESS="unix:path=$$_run/bus" \
+	                 gsettings set org.gnome.shell enabled-extensions "['$$_uuid']"; then \
+	             printf "$(C_OK)  ✓ Pre-registered — extension will activate after next login$(C_RESET)\n"; \
+	         else \
+	             printf "$(C_WARN)  ⚠ Could not pre-register. After next login run: make enable-extension$(C_RESET)\n"; \
+	         fi; \
+	     else \
+	         _new=$$(printf '%s' "$$_cur" | sed "s/]$$/, '$$_uuid']/"); \
+	         if $(HOST_EXEC) env \
+	                 XDG_RUNTIME_DIR="$$_run" \
+	                 DBUS_SESSION_BUS_ADDRESS="unix:path=$$_run/bus" \
+	                 gsettings set org.gnome.shell enabled-extensions "$$_new"; then \
+	             printf "$(C_OK)  ✓ Pre-registered — extension will activate after next login$(C_RESET)\n"; \
+	         else \
+	             printf "$(C_WARN)  ⚠ Could not pre-register. After next login run: make enable-extension$(C_RESET)\n"; \
+	         fi; \
+	     fi; \
+	 fi
 
 probe:
 	@bash scripts/probe.sh
