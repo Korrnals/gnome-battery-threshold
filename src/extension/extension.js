@@ -77,8 +77,15 @@ class Indicator extends PanelMenu.Button {
         // Panel icon — custom SVG bundled with the extension
         this._iconFile = Gio.File.new_for_path(
             `${extension.path}/icons/battery-threshold-symbolic.svg`);
+        let panelGicon;
+        try {
+            panelGicon = Gio.icon_new_for_string(this._iconFile.get_path());
+        } catch (e) {
+            log(`Battery Threshold: failed to load custom icon, using fallback: ${e}`);
+            panelGicon = Gio.ThemedIcon.new('battery-good-symbolic');
+        }
         this._icon = new St.Icon({
-            gicon: Gio.FileIcon.new(this._iconFile),
+            gicon: panelGicon,
             style_class: 'system-status-icon battery-threshold-icon',
         });
         this.add_child(this._icon);
