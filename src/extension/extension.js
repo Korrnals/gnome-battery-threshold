@@ -333,6 +333,16 @@ class Indicator extends PanelMenu.Button {
             this._icon.add_style_pseudo_class('checked');
         else
             this._icon.remove_style_pseudo_class('checked');
+
+        // Xiaomi (and some other) ECs don't fire a uevent when the EC
+        // stops charging, so UPower keeps reporting state=Charging and
+        // the stock GNOME battery icon keeps the lightning bolt long
+        // after the EC has actually engaged the limit. Nudge UPower to
+        // re-read sysfs whenever the limit-reached state flips.
+        if (this._lastLimitReached !== limitReached) {
+            this._lastLimitReached = limitReached;
+            this._pokeUPower();
+        }
     }
 
     _setControlsSensitive(sensitive) {
@@ -408,6 +418,39 @@ class Indicator extends PanelMenu.Button {
     _readAcOnline() {
         const v = this._readSysfsFirst('/sys/class/power_supply', /^(AC|ADP)/, 'online');
         return v === '1' || v === 1;
+    }
+
+    // Ask UPower to re-read every device's state. UPower normally polls
+    // every ~30s and reacts to udev events; on Xiaomi the EC silently
+    // stops the charge without a uevent, so the GNOME battery icon
+    // (driven by UPower) keeps showing the lightning bolt until the next
+    // poll. Calling Refresh on each device makes UPower re-read sysfs
+    // immediately and emit PropertiesChanged, which gnome-shell picks up.
+    _pokeUPower() {
+        Gio.DBus.system.call(
+            'org.freedesktop.UPower',
+            '/org/freedesktop/UPower',
+            'org.freedesktop.UPower',
+            'EnumerateDevices',
+            null,
+            new GLib.VariantType('(ao)'),
+            Gio.DBusCallFlags.NONE, -1, null,
+            (conn, res) => {
+                let paths;
+                try {
+                    [paths] = conn.call_finish(res).deep_unpack();
+                } catch (_e) {
+                    return; // UPower not available
+                }
+                for (const p of paths) {
+                    Gio.DBus.system.call(
+                        'org.freedesktop.UPower', p,
+                        'org.freedesktop.UPower.Device', 'Refresh',
+                        null, null,
+                        Gio.DBusCallFlags.NONE, -1, null,
+                        () => {});
+                }
+            });
     }
 
     // Finds the first directory in `dir` matching `pattern` and returns the
