@@ -298,16 +298,13 @@ class Indicator extends PanelMenu.Button {
         this._setControlsSensitive(true);
         this._enableSwitch.setToggleState(enabled);
 
-        // Daemon properties now reflect user intent (the daemon stores
-        // start/end as intent and emulates the lower threshold in software
-        // for end-only backends). Sync gsettings if the daemon snapped end.
-        const settingsEnd = this._settings.get_int('threshold-end');
-        if (settingsEnd !== end && enabled)
-            this._settings.set_int('threshold-end', end);
-        const settingsStart = this._settings.get_int('threshold-start');
-        if (settingsStart !== start && enabled)
-            this._settings.set_int('threshold-start', start);
-
+        // GSettings is the source of truth for *user intent*. We do NOT
+        // sync daemon → settings here — that would race against an Apply
+        // in flight (user picks End=90, presses Apply; before SetThresholds
+        // returns, this tick reads daemon=80 and overwrites settings back
+        // to 80, dragging the prefs ComboRow with it). Reconciliation
+        // happens once, in _applyFromSettings's success callback, where we
+        // know the daemon's reply reflects what we just sent.
         const displayStart = this._settings.get_int('threshold-start');
         const displayEnd = this._settings.get_int('threshold-end');
         this._startRow.slider.value = displayStart / 100;
@@ -316,7 +313,7 @@ class Indicator extends PanelMenu.Button {
         this._endRow.valueLabel.text = `${displayEnd}%`;
 
         // Suppress unused-var lint for minStart/maxEnd until we use them.
-        void minStart; void maxEnd;
+        void minStart; void maxEnd; void start; void end;
 
         if (enabled)
             this._icon.add_style_pseudo_class('active');
@@ -371,8 +368,18 @@ class Indicator extends PanelMenu.Button {
                 console.error(`BatteryThreshold: ${error.message}`);
                 return;
             }
+            // Reconcile: if the daemon snapped our values to its supported
+            // grid (e.g. End 78 → 80), pull the actual values back into
+            // GSettings so the UI stops disagreeing with reality. Safe to
+            // do here because we know the daemon just processed our call.
+            const actualStart = this._proxy.Start ?? start;
+            const actualEnd = this._proxy.End ?? end;
+            if (actualStart !== start)
+                this._settings.set_int('threshold-start', actualStart);
+            if (actualEnd !== end)
+                this._settings.set_int('threshold-end', actualEnd);
             if (enabled) {
-                this._notify(_('Charge limit set to %d%%').format(end));
+                this._notify(_('Charge limit set to %d%%').format(actualEnd));
             } else {
                 // On end-only backends (Xiaomi WMID) the EC only consults
                 // the limit at the next AC plug-in event. Tell the user.
