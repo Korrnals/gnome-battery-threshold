@@ -94,6 +94,16 @@ impl VendorBackend for XiaomiBackend {
 
     async fn set_thresholds(&self, t: Thresholds) -> BackendResult<()> {
         if !t.enabled {
+            // Dedup: if EC already disabled, skip the 2s sleep sequence.
+            // Rapid UI drags otherwise queue up multi-second ACPI bursts
+            // that block the D-Bus method and visibly freeze the shell.
+            {
+                let cache = self.cache.lock().await;
+                if !cache.enabled {
+                    debug!("xiaomi: disable requested but already disabled, skipping");
+                    return Ok(());
+                }
+            }
             // Reference script calls 0xfb 0x00 twice with a delay between
             // them; without the gap the EC silently drops the second call.
             disable().await?;
@@ -115,6 +125,15 @@ impl VendorBackend for XiaomiBackend {
             min: 40,
             max: 80,
         })?;
+
+        // Dedup: if EC already enabled at the same end value, skip.
+        {
+            let cache = self.cache.lock().await;
+            if cache.enabled && cache.end == end {
+                debug!("xiaomi: already enabled at {end}%, skipping");
+                return Ok(());
+            }
+        }
 
         // Sequence per Xiaomi PC Manager / Arch Wiki reference:
         //   0xfb <limit>; sleep 1; 0xfa 0x00; sleep 1; 0xfa 0x00

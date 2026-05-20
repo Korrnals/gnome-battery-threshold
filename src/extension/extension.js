@@ -111,7 +111,7 @@ class Indicator extends PanelMenu.Button {
             if (this._pendingApplyId)
                 GLib.source_remove(this._pendingApplyId);
             this._pendingApplyId = GLib.timeout_add(
-                GLib.PRIORITY_DEFAULT, 400, () => {
+                GLib.PRIORITY_DEFAULT, 800, () => {
                     this._pendingApplyId = 0;
                     this._applyFromSettings();
                     return GLib.SOURCE_REMOVE;
@@ -281,12 +281,14 @@ class Indicator extends PanelMenu.Button {
         this._startRow.item.visible = true;
 
         // Status line that actually tells the user what's going on.
+        const live = this._readBatteryState();
+        const liveSuffix = live ? ` — ${live}` : '';
         if (enabled) {
             this._statusItem.label.text =
-                _('Active: %d%%–%d%% (%s)').format(start, end, vendor);
+                _('Active: %d%%–%d%% (%s)').format(start, end, vendor) + liveSuffix;
         } else {
             this._statusItem.label.text =
-                _('Charge limit off (%s)').format(vendor);
+                _('Charge limit off (%s)').format(vendor) + liveSuffix;
         }
 
         this._setControlsSensitive(true);
@@ -344,16 +346,80 @@ class Indicator extends PanelMenu.Button {
                 console.error(`BatteryThreshold: ${error.message}`);
                 return;
             }
-            // Daemon emitted PropertiesChanged — GDBusProxy will refresh
-            // its cache and fire `g-properties-changed`, which calls
-            // `_refreshFromProxy`. We also notify the user so Apply has
-            // visible feedback even if the limit doesn't kick in until the
-            // next charge cycle.
-            if (enabled)
+            if (enabled) {
                 this._notify(_('Charge limit set to %d%%').format(end));
-            else
-                this._notify(_('Charge limit disabled'));
+            } else {
+                // On end-only backends (Xiaomi WMID) the EC only consults
+                // the limit at the next AC plug-in event. Tell the user.
+                const ac = this._readAcOnline();
+                const status = this._readBatteryStatusRaw();
+                if (ac && status === 'Not charging') {
+                    this._notify(_('Charge limit disabled. Briefly unplug and reconnect the charger so the EC resumes charging.'));
+                } else {
+                    this._notify(_('Charge limit disabled'));
+                }
+            }
         });
+    }
+
+    // Live battery state from sysfs (sync — files are tiny and the read
+    // returns instantly). Returns a short human-readable string or null.
+    _readBatteryState() {
+        const cap = this._readSysfsFirst('/sys/class/power_supply', /^BAT/, 'capacity');
+        const status = this._readBatteryStatusRaw();
+        if (cap === null && !status)
+            return null;
+        const capStr = cap !== null ? `${cap}%` : '?%';
+        if (!status)
+            return capStr;
+        // Translate kernel-side strings to something more honest.
+        const ac = this._readAcOnline();
+        let label = status;
+        if (status === 'Not charging' && ac)
+            label = _('limit reached');
+        else if (status === 'Full')
+            label = _('full');
+        else if (status === 'Charging')
+            label = _('charging');
+        else if (status === 'Discharging')
+            label = _('on battery');
+        return `${capStr} ${label}`;
+    }
+
+    _readBatteryStatusRaw() {
+        return this._readSysfsFirst('/sys/class/power_supply', /^BAT/, 'status');
+    }
+
+    _readAcOnline() {
+        const v = this._readSysfsFirst('/sys/class/power_supply', /^(AC|ADP)/, 'online');
+        return v === '1' || v === 1;
+    }
+
+    // Finds the first directory in `dir` matching `pattern` and returns the
+    // trimmed content of `file` inside it, or null on failure.
+    _readSysfsFirst(dir, pattern, file) {
+        try {
+            const d = Gio.File.new_for_path(dir);
+            const enumerator = d.enumerate_children('standard::name',
+                Gio.FileQueryInfoFlags.NONE, null);
+            let info;
+            while ((info = enumerator.next_file(null)) !== null) {
+                const name = info.get_name();
+                if (!pattern.test(name))
+                    continue;
+                const target = Gio.File.new_for_path(`${dir}/${name}/${file}`);
+                if (!target.query_exists(null))
+                    continue;
+                const [ok, bytes] = target.load_contents(null);
+                if (!ok)
+                    continue;
+                const s = new TextDecoder().decode(bytes).trim();
+                return /^-?\d+$/.test(s) ? parseInt(s, 10) : s;
+            }
+        } catch (_e) {
+            return null;
+        }
+        return null;
     }
 
     _startPeriodicRefresh() {
