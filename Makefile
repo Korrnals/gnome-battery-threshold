@@ -107,7 +107,7 @@ else
   C_INFO  := \033[1;36m
 endif
 
-.PHONY: all help doctor deps build daemon extension schemas generate \
+.PHONY: all help doctor deps install-deps build daemon extension schemas generate \
         install install-system install-extension install-activate \
         _try-enable-extension enable-extension uninstall \
         reload restart test lint dist clean probe \
@@ -128,8 +128,11 @@ help:
 	@printf "    make daemon              Compile just the Rust daemon\n"
 	@printf "    make extension           Bundle just the GJS extension\n\n"
 	@printf "  $(C_INFO)Install:$(C_RESET)\n"
-	@printf "    sudo make install        Install everything (auto-picks PREFIX)\n"
+	@printf "    sudo make install        Install everything (auto-picks PREFIX; prompts for deps)\n"
+	@printf "    sudo make install BATTERY_THRESHOLD_AUTO_DEPS=1   Auto-install kernel deps\n"
+	@printf "    sudo make install BATTERY_THRESHOLD_NO_DEPS=1     Skip dep installation\n"
 	@printf "    sudo make install NO_ACTIVATE=1   Install without starting daemon\n"
+	@printf "    sudo make install-deps   Install only the vendor-specific kernel deps\n"
 	@printf "    sudo make uninstall      Remove everything\n"
 	@printf "    sudo make reload         daemon-reload + restart daemon\n"
 	@printf "    make enable-extension    Enable GNOME extension (user, no sudo)\n\n"
@@ -179,7 +182,7 @@ doctor:
 	@printf "\n$(C_INFO)Recommendation:$(C_RESET)\n"
 	@if [ "$(IS_XIAOMI)" = "yes" ] && [ "$(HAS_ACPI_CALL)" = "no" ]; then \
 	    printf "  $(C_WARN)→ Xiaomi laptop detected but acpi_call is missing.$(C_RESET)\n"; \
-	    printf "    Run: $(C_BOLD)make deps$(C_RESET) for installation guide.\n"; \
+	    printf "    Run: $(C_BOLD)sudo make install-deps$(C_RESET) (auto) or $(C_BOLD)make deps$(C_RESET) (guide).\n"; \
 	elif [ "$(IS_THINKPAD)" = "yes" ] && [ "$(HAS_ACPI_CALL)" = "no" ] && [ -z "$(HAS_SYSFS_END)" ]; then \
 	    printf "  $(C_WARN)→ ThinkPad detected; consider installing acpi_call.$(C_RESET)\n"; \
 	    printf "    Run: $(C_BOLD)make deps$(C_RESET)\n"; \
@@ -314,9 +317,88 @@ else
 	fi
 endif
 
-install: build install-system install-extension install-activate _try-enable-extension
+install: install-deps build install-system install-extension install-activate _try-enable-extension
 	@printf "\n$(C_OK)✓ Installation complete.$(C_RESET)\n"
 	@printf "Tip: $(C_BOLD)make doctor$(C_RESET) to verify everything is in place.\n"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# install-deps — auto/interactive install of vendor-specific kernel modules.
+#
+#   • If a backend is already available, no-op.
+#   • If running on a non-interactive shell, prints what's needed and continues
+#     (the daemon will simply report 'unsupported' until deps are installed).
+#   • Otherwise asks the user [Y/n] before invoking the appropriate package
+#     manager. Set BATTERY_THRESHOLD_AUTO_DEPS=1 to skip the prompt.
+#   • Set BATTERY_THRESHOLD_NO_DEPS=1 to skip dep installation entirely.
+# ─────────────────────────────────────────────────────────────────────────────
+install-deps:
+	@if [ -n "$$BATTERY_THRESHOLD_NO_DEPS" ]; then \
+	    printf "$(C_INFO)▸ Skipping dep check (BATTERY_THRESHOLD_NO_DEPS=1)$(C_RESET)\n"; \
+	    exit 0; \
+	fi; \
+	if [ -n "$(HAS_SYSFS_END)" ] || [ "$(HAS_ACPI_CALL)" = "yes" ]; then \
+	    printf "$(C_OK)✓ Charge-control backend already available — no extra deps needed.$(C_RESET)\n"; \
+	    exit 0; \
+	fi; \
+	if [ "$(IS_XIAOMI)" != "yes" ] && [ "$(IS_THINKPAD)" != "yes" ]; then \
+	    printf "$(C_WARN)⚠ Hardware is '$(DMI_VENDOR) $(DMI_PRODUCT)' — vendor not in auto-deps list.$(C_RESET)\n"; \
+	    printf "  Run 'make probe' and 'make deps' for guidance.\n"; \
+	    exit 0; \
+	fi; \
+	printf "$(C_WARN)▸ acpi_call kernel module is required for $(DMI_VENDOR) hardware.$(C_RESET)\n"; \
+	REPLY=y; \
+	if [ -z "$$BATTERY_THRESHOLD_AUTO_DEPS" ]; then \
+	    if [ -t 0 ] && [ -t 1 ]; then \
+	        printf "  Install required dependencies now? [Y/n] "; \
+	        read REPLY </dev/tty || REPLY=n; \
+	    else \
+	        printf "$(C_INFO)  Non-interactive shell — skipping. Re-run with BATTERY_THRESHOLD_AUTO_DEPS=1$(C_RESET)\n"; \
+	        printf "$(C_INFO)  or run 'make deps' for manual instructions.$(C_RESET)\n"; \
+	        exit 0; \
+	    fi; \
+	fi; \
+	case "$$REPLY" in \
+	    [Nn]*) printf "$(C_WARN)  Skipped. See 'make deps' for manual steps.$(C_RESET)\n"; exit 0;; \
+	esac; \
+	case "$(OS_ID)" in \
+	    fedora) \
+	        if [ "$(OS_VARIANT)" = "silverblue" ] || [ "$(OS_VARIANT)" = "kinoite" ] || [ "$(OS_VARIANT)" = "sericea" ]; then \
+	            printf "$(C_INFO)▸ Fedora Atomic — layering RPM Fusion + akmod-acpi_call via rpm-ostree$(C_RESET)\n"; \
+	            printf "$(C_WARN)  Note: rpm-ostree stages changes; you will need to REBOOT to load the module.$(C_RESET)\n"; \
+	            $(HSUDO) rpm-ostree install --idempotent \
+	                https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(OS_VERSION).noarch.rpm \
+	                || printf "$(C_WARN)  RPM Fusion layer may already be present.$(C_RESET)\n"; \
+	            $(HSUDO) rpm-ostree install --idempotent akmod-acpi_call \
+	                || printf "$(C_WARN)  akmod-acpi_call queued — reboot, then re-run 'sudo make install'.$(C_RESET)\n"; \
+	            printf "$(C_BOLD)→ Reboot now (sudo systemctl reboot), then re-run 'sudo make install'.$(C_RESET)\n"; \
+	            exit 0; \
+	        else \
+	            printf "$(C_INFO)▸ Fedora — installing RPM Fusion + akmod-acpi_call via dnf$(C_RESET)\n"; \
+	            $(HSUDO) dnf install -y \
+	                https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(OS_VERSION).noarch.rpm \
+	                || true; \
+	            $(HSUDO) dnf install -y akmod-acpi_call kernel-devel || \
+	                { printf "$(C_ERR)  Package install failed. See 'make deps'.$(C_RESET)\n"; exit 1; }; \
+	            $(HSUDO) modprobe acpi_call 2>/dev/null || \
+	                printf "$(C_WARN)  Module not loadable yet — reboot may be required.$(C_RESET)\n"; \
+	        fi ;; \
+	    ubuntu|debian|linuxmint|pop) \
+	        printf "$(C_INFO)▸ Debian/Ubuntu — installing acpi-call-dkms$(C_RESET)\n"; \
+	        $(HSUDO) apt-get update && $(HSUDO) apt-get install -y acpi-call-dkms || \
+	            { printf "$(C_ERR)  Package install failed.$(C_RESET)\n"; exit 1; }; \
+	        $(HSUDO) modprobe acpi_call 2>/dev/null || true ;; \
+	    arch|manjaro|endeavouros) \
+	        printf "$(C_INFO)▸ Arch — installing acpi_call-dkms$(C_RESET)\n"; \
+	        $(HSUDO) pacman -S --noconfirm acpi_call-dkms || \
+	            { printf "$(C_ERR)  Package install failed.$(C_RESET)\n"; exit 1; }; \
+	        $(HSUDO) modprobe acpi_call 2>/dev/null || true ;; \
+	    opensuse*|suse) \
+	        printf "$(C_INFO)▸ openSUSE — installing acpi_call-kmp-default$(C_RESET)\n"; \
+	        $(HSUDO) zypper install -y acpi_call-kmp-default || \
+	            { printf "$(C_ERR)  Package install failed.$(C_RESET)\n"; exit 1; } ;; \
+	    *) \
+	        printf "$(C_WARN)  Unknown distro '$(OS_ID)' — see 'make deps' for manual steps.$(C_RESET)\n" ;; \
+	esac
 
 # Activates the systemd unit unless NO_ACTIVATE=1 is set.
 install-activate: check-root

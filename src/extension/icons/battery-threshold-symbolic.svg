@@ -1,11 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <!-- battery body -->
-  <path d="M3 5c-.55 0-1 .45-1 1v4c0 .55.45 1 1 1h8c.55 0 1-.45 1-1V6c0-.55-.45-1-1-1H3zm0 1h8v4H3V6z" fill="currentColor"/>
-  <!-- positive terminal -->
-  <path d="M13 6.75h.75c.14 0 .25.11.25.25v2c0 .14-.11.25-.25.25H13z" fill="currentColor"/>
-  <!-- charge level up to ~70% -->
-  <rect x="3.5" y="6.5" width="5.2" height="3" fill="currentColor" opacity="0.55"/>
-  <!-- threshold marker (vertical line at 70%) -->
-  <rect x="8.7" y="5.5" width="0.6" height="5" fill="currentColor"/>
+  <\!-- Battery body (hollow) -->
+  <rect x="2" y="5" width="10" height="6" rx="0.9" ry="0.9"
+        fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <\!-- Positive terminal -->
+  <rect x="12.6" y="6.75" width="1.4" height="2.5" rx="0.4" ry="0.4"
+        fill="currentColor"/>
+
+  <\!-- Filled allowed range: middle 2 of 4 cells (cells 2 + 3) -->
+  <rect x="5.2" y="6.2" width="3.6" height="3.6"
+        fill="currentColor" opacity="0.78"/>
+
+  <\!-- Faint divider between cell 2 and cell 3 -->
+  <line x1="7" y1="6.4" x2="7" y2="9.6"
+        stroke="currentColor" stroke-width="0.35" opacity="0.35"/>
+
+  <\!-- Dashed threshold limit markers (lower + upper) -->
+  <line x1="5.2" y1="3" x2="5.2" y2="13"
+        stroke="currentColor" stroke-width="1" stroke-linecap="round"
+        stroke-dasharray="1.4 0.9"/>
+  <line x1="8.8" y1="3" x2="8.8" y2="13"
+        stroke="currentColor" stroke-width="1" stroke-linecap="round"
+        stroke-dasharray="1.4 0.9"/>
 </svg>
