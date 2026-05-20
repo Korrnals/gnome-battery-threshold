@@ -6,7 +6,7 @@
 // has been reverse-engineered and documented on the Arch Wiki.
 //
 // Supported limits (percentage → buffer[6] byte):
-//     40 → 0x08, 50 → 0x07, 60 → 0x06, 70 → 0x05, 80 → 0x01
+//     40 → 0x08, 50 → 0x07, 60 → 0x06, 70 → 0x05, 80 → 0x01, 90 → 0x04
 //
 // The "enable" buffer (0xfa command) must be sent twice; the "disable" buffer
 // uses the 0xfb command with a zero limit.
@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use tokio::fs;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::error::{BackendError, BackendResult};
 use crate::vendors::{BackendInfo, Thresholds, VendorBackend};
@@ -29,7 +29,7 @@ use crate::vendors::{BackendInfo, Thresholds, VendorBackend};
 const ACPI_CALL: &str = "/proc/acpi/call";
 
 /// Allowed end-thresholds, in ascending order.
-const ALLOWED_END: [u8; 5] = [40, 50, 60, 70, 80];
+const ALLOWED_END: [u8; 6] = [40, 50, 60, 70, 80, 90];
 
 fn end_to_byte(end: u8) -> Option<u8> {
     match end {
@@ -38,6 +38,7 @@ fn end_to_byte(end: u8) -> Option<u8> {
         60 => Some(0x06),
         70 => Some(0x05),
         80 => Some(0x01),
+        90 => Some(0x04),
         _ => None,
     }
 }
@@ -57,7 +58,7 @@ impl XiaomiBackend {
                 vendor: "xiaomi",
                 battery_path: battery.to_string_lossy().into_owned(),
                 min_start: 0,
-                max_end: 80,
+                max_end: 90,
                 step: 10,
             },
             cache: Arc::new(Mutex::new(Thresholds {
@@ -133,7 +134,7 @@ impl VendorBackend for XiaomiBackend {
         let byte = end_to_byte(end).ok_or(BackendError::OutOfRange {
             value: end,
             min: 40,
-            max: 80,
+            max: 90,
         })?;
 
         // Dedup: if EC already enabled at the same end value, skip.
@@ -220,7 +221,8 @@ mod tests {
         assert_eq!(b.snap(55), 50);
         assert_eq!(b.snap(67), 70);
         assert_eq!(b.snap(73), 70);
-        assert_eq!(b.snap(100), 80);
+        assert_eq!(b.snap(86), 90);
+        assert_eq!(b.snap(100), 90);
         assert_eq!(b.snap(0), 40);
     }
 
@@ -244,7 +246,7 @@ mod tests {
                 vendor: "xiaomi",
                 battery_path: String::new(),
                 min_start: 0,
-                max_end: 80,
+                max_end: 90,
                 step: 10,
             },
             cache: Arc::new(Mutex::new(Thresholds::default())),

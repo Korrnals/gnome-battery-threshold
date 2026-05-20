@@ -95,6 +95,28 @@ cp -r target/extension/* ~/.local/share/gnome-shell/extensions/battery-threshold
 gnome-extensions enable battery-threshold@korrnals.github.io
 ```
 
+### Hot-reloading JS changes (Preferences window)
+
+Changes to `prefs.js` **do not** require a GNOME Shell restart or session
+re-login. The Preferences window is a separate process that loads the
+extension JS fresh every time it opens. Workflow:
+
+```bash
+cp target/extension/prefs.js \
+    ~/.local/share/gnome-shell/extensions/battery-threshold@korrnals.github.io/prefs.js
+# Close and reopen Settings → Extensions → Battery Threshold → ⚙
+```
+
+Changes to `extension.js` (the panel indicator) *do* require restarting
+the shell (X11: `Alt+F2` → `r`; Wayland: log out and back in).
+
+The daemon binary (`battery-thresholdd`) requires only a service restart,
+not a session reload:
+
+```bash
+sudo systemctl restart battery-thresholdd
+```
+
 Logs:
 
 ```bash

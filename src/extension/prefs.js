@@ -44,27 +44,38 @@ export default class BatteryThresholdPreferences extends ExtensionPreferences {
         group.add(startRow);
         settings.bind('threshold-start', startRow, 'value', Gio.SettingsBindFlags.DEFAULT);
 
-        const endRow = new Adw.SpinRow({
+        // Valid EC end-thresholds — only these values have DSDT branches in the
+        // Xiaomi WMAA method (FUN4 ∈ {8,7,6,5,1,4} → HBDA ∈ {40..90}%).
+        // Any value outside this list is silently snapped by the daemon.
+        const END_VALUES = [40, 50, 60, 70, 80, 90];
+        const endIdxFor = (pct) => END_VALUES.reduce((best, v, i) =>
+            Math.abs(v - pct) < Math.abs(END_VALUES[best] - pct) ? i : best, 0);
+
+        const endRow = new Adw.ComboRow({
             title: _('End (%)'),
             subtitle: _('Stop charging at this level'),
-            adjustment: new Gtk.Adjustment({
-                lower: 10, upper: 100, step_increment: 1, page_increment: 5,
-            }),
+            model: new Gtk.StringList({strings: END_VALUES.map(v => `${v}%`)}),
         });
         group.add(endRow);
-        settings.bind('threshold-end', endRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-
-        // Auto-correct invalid combinations
-        settings.connect('changed::threshold-start', () => {
-            const s = settings.get_int('threshold-start');
-            const e = settings.get_int('threshold-end');
-            if (s >= e - 10)
-                settings.set_int('threshold-end', Math.min(100, s + 10));
+        endRow.selected = endIdxFor(settings.get_int('threshold-end'));
+        endRow.connect('notify::selected', () => {
+            settings.set_int('threshold-end', END_VALUES[endRow.selected]);
         });
         settings.connect('changed::threshold-end', () => {
+            const idx = endIdxFor(settings.get_int('threshold-end'));
+            if (endRow.selected !== idx) endRow.selected = idx;
+            // Keep start below end.
             const s = settings.get_int('threshold-start');
-            const e = settings.get_int('threshold-end');
-            if (e <= s + 10)
+            const e = END_VALUES[endRow.selected];
+            if (s >= e - 10)
+                settings.set_int('threshold-start', Math.max(0, e - 10));
+        });
+
+        // Auto-correct start when it drifts too close to end.
+        settings.connect('changed::threshold-start', () => {
+            const s = settings.get_int('threshold-start');
+            const e = END_VALUES[endRow.selected];
+            if (s >= e - 10)
                 settings.set_int('threshold-start', Math.max(0, e - 10));
         });
 
