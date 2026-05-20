@@ -25,5 +25,12 @@
       <description>If false, the panel icon is hidden. Settings remain
       accessible from the Extensions app.</description>
     </key>
+    <key name="apply-trigger" type="u">
+      <default>0</default>
+      <summary>Manual apply trigger</summary>
+      <description>Monotonic counter; bumping it asks the extension to push
+      the current threshold values to the daemon. Used by the Apply button
+      in Preferences so that editing values no longer auto-applies.</description>
+    </key>
   </schema>
 </schemalist>

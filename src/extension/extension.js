@@ -101,26 +101,15 @@ class Indicator extends PanelMenu.Button {
         );
         this._applyVisibility();
 
-        // Auto-apply when gsettings change (e.g. user edited Preferences).
-        // Debounced so SpinRow's per-click changes don't fire a dozen
-        // SetThresholds calls.
-        this._pendingApplyId = 0;
-        const scheduleApply = () => {
-            if (this._syncing)
-                return;
-            if (this._pendingApplyId)
-                GLib.source_remove(this._pendingApplyId);
-            this._pendingApplyId = GLib.timeout_add(
-                GLib.PRIORITY_DEFAULT, 800, () => {
-                    this._pendingApplyId = 0;
-                    this._applyFromSettings();
-                    return GLib.SOURCE_REMOVE;
-                });
-        };
+        // Apply is now explicit: only the menu Apply item, the enable
+        // toggle, and the Preferences Apply button (via `apply-trigger`)
+        // push to the daemon. Editing threshold values just updates
+        // GSettings; the user picks the moment of commit. This prevents
+        // spinner clicks / slider drags from flooding D-Bus and stalling
+        // the shell.
         this._settingsHandlerIds = [
-            this._settings.connect('changed::threshold-start', scheduleApply),
-            this._settings.connect('changed::threshold-end', scheduleApply),
-            this._settings.connect('changed::enabled', scheduleApply),
+            this._settings.connect('changed::apply-trigger',
+                () => this._applyFromSettings()),
         ];
 
         this._buildMenu();

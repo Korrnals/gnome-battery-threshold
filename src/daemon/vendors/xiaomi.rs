@@ -109,6 +109,12 @@ impl VendorBackend for XiaomiBackend {
             disable().await?;
             sleep(EC_DELAY).await;
             disable().await?;
+            // Xiaomi's EC only re-evaluates the limit on an AC plug-in
+            // event, so writing "no limit" while it's in `Not charging`
+            // state leaves it stuck there. Re-bind the ACPI ac driver to
+            // synthesize that event from software (best effort: silently
+            // skipped if the sysfs paths don't exist or aren't writable).
+            kick_ac_driver().await;
             let mut cache = self.cache.lock().await;
             cache.enabled = false;
             cache.start = 0;
@@ -162,6 +168,53 @@ const EC_DELAY: Duration = Duration::from_millis(1000);
 async fn disable() -> BackendResult<()> {
     // 0xfb with zero limit → unlimited charging.
     write_acpi_call(&build_set_buffer(0x00)).await
+}
+
+/// Synthesize an AC plug-in event by re-binding the ACPI ac driver.
+///
+/// The Xiaomi EC consults its charge-limit register only when the AC
+/// adapter reports a transition (plug-in). Toggling the kernel driver
+/// binding causes the ACPI layer to re-emit the AC state, which on this
+/// hardware is enough to make the EC resume (or re-stop) charging without
+/// the user physically unplugging the charger.
+///
+/// Best-effort: logs and swallows errors. Requires root, which the
+/// daemon already has.
+async fn kick_ac_driver() {
+    // The AC adapter is bound as a platform driver named "ac" on modern
+    // kernels (the older /sys/bus/acpi/drivers/ac path does not exist).
+    const DRIVER_DIR: &str = "/sys/bus/platform/drivers/ac";
+    let mut entries = match fs::read_dir(DRIVER_DIR).await {
+        Ok(e) => e,
+        Err(e) => {
+            debug!("xiaomi: cannot read {DRIVER_DIR}: {e}");
+            return;
+        }
+    };
+    let mut device: Option<String> = None;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Skip control files (bind/unbind/uevent); device names look
+        // like "ACPI0003:00".
+        if name.contains(':') {
+            device = Some(name);
+            break;
+        }
+    }
+    let Some(dev) = device else {
+        debug!("xiaomi: no ACPI ac device found to kick");
+        return;
+    };
+    if let Err(e) = fs::write(format!("{DRIVER_DIR}/unbind"), &dev).await {
+        debug!("xiaomi: unbind {dev} failed: {e}");
+        return;
+    }
+    sleep(Duration::from_millis(300)).await;
+    if let Err(e) = fs::write(format!("{DRIVER_DIR}/bind"), &dev).await {
+        debug!("xiaomi: bind {dev} failed: {e}");
+        return;
+    }
+    debug!("xiaomi: kicked AC driver ({dev}) to re-trigger EC charge evaluation");
 }
 
 async fn write_acpi_call(cmd: &str) -> BackendResult<()> {

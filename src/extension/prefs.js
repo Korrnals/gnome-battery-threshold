@@ -23,7 +23,7 @@ export default class BatteryThresholdPreferences extends ExtensionPreferences {
         // ─── Thresholds group ────────────────────────────────────────────
         const group = new Adw.PreferencesGroup({
             title: _('Charge Thresholds'),
-            description: _('Limit battery charge to extend its lifespan. Recommended: 30–70%. Changes apply automatically. On laptops whose firmware only supports a stop-charging threshold (e.g. Xiaomi), the daemon emulates the lower threshold in software: it engages the EC limit when the battery reaches End and releases it when the battery drops to Start, so the laptop charges back up.'),
+            description: _('Limit battery charge to extend its lifespan. Recommended: 30–70%. Edit the values, then press Apply to push them to the daemon — nothing is sent until you do. On laptops whose firmware only supports a stop-charging threshold (e.g. Xiaomi), the daemon emulates the lower threshold in software: it engages the EC limit when the battery reaches End and releases it when the battery drops to Start, so the laptop charges back up.'),
         });
         page.add(group);
 
@@ -67,6 +67,28 @@ export default class BatteryThresholdPreferences extends ExtensionPreferences {
             if (e <= s + 10)
                 settings.set_int('threshold-start', Math.max(0, e - 10));
         });
+
+        // ─── Apply button ────────────────────────────────────────────────
+        // Editing the rows above only writes to GSettings; the running
+        // extension watches `apply-trigger` and only pushes to the daemon
+        // when this counter changes. This keeps rapid spinner clicks and
+        // slider drags from flooding D-Bus.
+        const applyRow = new Adw.ActionRow({
+            title: _('Apply now'),
+            subtitle: _('Send the values above to the daemon'),
+        });
+        const applyButton = new Gtk.Button({
+            label: _('Apply'),
+            valign: Gtk.Align.CENTER,
+            css_classes: ['suggested-action'],
+        });
+        applyButton.connect('clicked', () => {
+            const cur = settings.get_uint('apply-trigger');
+            settings.set_uint('apply-trigger', (cur + 1) >>> 0);
+        });
+        applyRow.add_suffix(applyButton);
+        applyRow.set_activatable_widget(applyButton);
+        group.add(applyRow);
 
         // ─── Appearance group ────────────────────────────────────────────
         const appearanceGroup = new Adw.PreferencesGroup({
