@@ -322,14 +322,18 @@ class Indicator extends PanelMenu.Button {
 
         // Visual cue: limit reached and laptop is running directly off AC
         // (EC bypass mode — battery is neither charging nor discharging).
+        // Use a real style class name rather than a pseudo-class: St's CSS
+        // engine is finicky about chained pseudo-classes (:active:checked
+        // sometimes failed to apply), and a class name is also easier to
+        // inspect with Looking Glass.
         const ac = this._readAcOnline();
         const rawStatus = this._readBatteryStatusRaw();
         const limitReached = enabled && ac &&
             (rawStatus === 'Not charging' || rawStatus === 'Full');
         if (limitReached)
-            this._icon.add_style_pseudo_class('checked');
+            this._icon.add_style_class_name('limit-reached');
         else
-            this._icon.remove_style_pseudo_class('checked');
+            this._icon.remove_style_class_name('limit-reached');
 
         // Xiaomi (and some other) ECs don't fire a uevent when the EC
         // stops charging, so UPower keeps reporting state=Charging and
