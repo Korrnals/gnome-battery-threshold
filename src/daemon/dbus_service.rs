@@ -70,30 +70,17 @@ impl BatteryThresholdService {
 
     #[zbus(property)]
     async fn start(&self) -> u8 {
-        let Some(backend) = self.state.backend().await else {
-            return 0;
-        };
-        backend.get_thresholds().await.map(|t| t.start).unwrap_or(0)
+        self.state.intent().await.start
     }
 
     #[zbus(property)]
     async fn end(&self) -> u8 {
-        let Some(backend) = self.state.backend().await else {
-            return 100;
-        };
-        backend.get_thresholds().await.map(|t| t.end).unwrap_or(100)
+        self.state.intent().await.end
     }
 
     #[zbus(property)]
     async fn enabled(&self) -> bool {
-        let Some(backend) = self.state.backend().await else {
-            return false;
-        };
-        backend
-            .get_thresholds()
-            .await
-            .map(|t| t.enabled)
-            .unwrap_or(false)
+        self.state.intent().await.enabled
     }
 
     // ─── Methods ───────────────────────────────────────────────────────
@@ -108,25 +95,25 @@ impl BatteryThresholdService {
         enabled: bool,
         #[zbus(signal_context)] ctxt: SignalContext<'_>,
     ) -> fdo::Result<()> {
-        let backend = self
-            .state
-            .backend()
-            .await
-            .ok_or_else(|| fdo::Error::NotSupported("no supported backend on this device".into()))?;
+        if !self.state.is_supported().await {
+            return Err(fdo::Error::NotSupported(
+                "no supported backend on this device".into(),
+            ));
+        }
 
-        let snapped = Thresholds {
-            start: backend.snap(start),
-            end: backend.snap(end),
-            enabled,
-        };
+        let snapped = self
+            .state
+            .set_intent(Thresholds { start, end, enabled })
+            .await?;
 
         info!(
-            "SetThresholds requested={start}-{end} enabled={enabled} snapped={}-{}",
+            "SetThresholds requested={start}-{end} enabled={enabled} stored={}-{}",
             snapped.start, snapped.end
         );
 
-        backend.set_thresholds(snapped).await?;
-        self.state.persist(snapped).await;
+        self.start_changed(&ctxt).await?;
+        self.end_changed(&ctxt).await?;
+        self.enabled_changed(&ctxt).await?;
         Self::state_changed(&ctxt).await?;
         Ok(())
     }

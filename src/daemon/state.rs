@@ -1,8 +1,12 @@
 // Shared daemon state.
 //
-// Holds the active vendor backend behind an Arc<Mutex<_>> and persists
-// user-configured thresholds to /var/lib/battery-thresholdd/state.json so
-// that a systemd unit can re-apply them on boot.
+// Holds the active vendor backend and the user's intended thresholds. For
+// end-only backends (Xiaomi WMID, sysfs implementations without
+// charge_control_start_threshold) the daemon emulates the lower threshold
+// in software via `reconcile`: when the battery rises to `end` the EC limit
+// is engaged; when it drops to `start` the limit is released so the laptop
+// can charge back up. For two-threshold backends the EC handles hysteresis
+// itself and `reconcile` simply pushes the intent through.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,7 +14,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use crate::error::BackendResult;
 use crate::vendors::{detect_backend, Thresholds, VendorBackend};
@@ -30,6 +34,8 @@ pub struct SharedState(Arc<Inner>);
 
 struct Inner {
     backend: RwLock<Option<Arc<dyn VendorBackend>>>,
+    intent: RwLock<Thresholds>,
+    hw_engaged: RwLock<bool>,
 }
 
 impl SharedState {
@@ -37,15 +43,17 @@ impl SharedState {
         let backend = detect_backend().await?;
         Ok(Self(Arc::new(Inner {
             backend: RwLock::new(backend),
+            intent: RwLock::new(Thresholds::default()),
+            hw_engaged: RwLock::new(false),
         })))
     }
 
     pub fn unsupported(reason: String) -> Self {
-        // Reason is logged on construction; we don't keep it around since
-        // the daemon exposes `vendor == "unsupported"` via D-Bus instead.
         tracing::warn!("running in unsupported mode: {reason}");
         Self(Arc::new(Inner {
             backend: RwLock::new(None),
+            intent: RwLock::new(Thresholds::default()),
+            hw_engaged: RwLock::new(false),
         }))
     }
 
@@ -72,36 +80,115 @@ impl SharedState {
         self.0.backend.read().await.clone()
     }
 
-    /// Apply the last-known thresholds. Called on daemon startup.
+    pub async fn intent(&self) -> Thresholds {
+        *self.0.intent.read().await
+    }
+
+    pub async fn is_end_only(&self) -> bool {
+        self.with_backend(|b| b.is_end_only()).await.unwrap_or(false)
+    }
+
+    /// Replace user intent and immediately reconcile to hardware.
+    /// Returns the snapped intent that was stored.
+    pub async fn set_intent(&self, t: Thresholds) -> BackendResult<Thresholds> {
+        let snapped = match self.backend().await {
+            Some(b) => Thresholds {
+                start: t.start.min(95),
+                end: b.snap(t.end),
+                enabled: t.enabled,
+            },
+            None => t,
+        };
+        *self.0.intent.write().await = snapped;
+        self.reconcile().await?;
+        self.persist(snapped).await;
+        Ok(snapped)
+    }
+
+    /// Apply persisted thresholds on daemon startup.
     pub async fn apply_persisted(&self) -> BackendResult<()> {
+        if self.backend().await.is_none() {
+            return Ok(());
+        }
+        let persisted = read_state().await.unwrap_or_default();
+        let intent = Thresholds {
+            start: persisted.start,
+            end: persisted.end,
+            enabled: persisted.enabled,
+        };
+        *self.0.intent.write().await = intent;
+        self.reconcile().await
+    }
+
+    /// Bring the EC state in line with user intent and current battery
+    /// capacity. Safe to call from any task; idempotent.
+    pub async fn reconcile(&self) -> BackendResult<()> {
         let Some(backend) = self.backend().await else {
             return Ok(());
         };
-        let persisted = read_state().await.unwrap_or_default();
-        if !persisted.enabled {
+        let intent = self.intent().await;
+
+        // Disabled, or two-threshold backend: push intent straight through.
+        if !intent.enabled || !backend.is_end_only() {
+            backend.set_thresholds(intent).await?;
+            *self.0.hw_engaged.write().await = intent.enabled;
             return Ok(());
         }
-        backend
-            .set_thresholds(Thresholds {
-                start: persisted.start,
-                end: persisted.end,
-                enabled: true,
-            })
-            .await
+
+        // End-only + enabled → software hysteresis.
+        let capacity = read_capacity(&backend.info().battery_path).await;
+        let engaged = *self.0.hw_engaged.read().await;
+        let start = intent.start;
+        let end = intent.end;
+
+        let want_engaged = match capacity {
+            Some(c) if c >= end => true,
+            Some(c) if c <= start => false,
+            // Inside the band, or capacity unknown: hold current state,
+            // defaulting to engaged so we never accidentally let the
+            // battery climb past the limit on first run.
+            Some(_) => engaged,
+            None => true,
+        };
+
+        if want_engaged && !engaged {
+            info!("hysteresis: capacity={:?}% ≥ end={}%, engaging EC limit", capacity, end);
+            backend
+                .set_thresholds(Thresholds { start: 0, end, enabled: true })
+                .await?;
+            *self.0.hw_engaged.write().await = true;
+        } else if !want_engaged && engaged {
+            info!(
+                "hysteresis: capacity={:?}% ≤ start={}%, releasing EC limit to recharge",
+                capacity, start
+            );
+            backend
+                .set_thresholds(Thresholds { start: 0, end, enabled: false })
+                .await?;
+            *self.0.hw_engaged.write().await = false;
+        } else if want_engaged {
+            // Re-assert periodically: cheap, and recovers if the EC forgets
+            // after suspend/resume.
+            debug!("hysteresis: re-asserting EC limit at {}%", end);
+            backend
+                .set_thresholds(Thresholds { start: 0, end, enabled: true })
+                .await?;
+        }
+        Ok(())
     }
 
-    /// Persist the given thresholds. Errors are logged but not returned —
-    /// failing to write state is non-fatal for the running daemon.
-    pub async fn persist(&self, t: Thresholds) {
-        let state = PersistedState {
-            enabled: t.enabled,
-            start: t.start,
-            end: t.end,
-        };
+    async fn persist(&self, t: Thresholds) {
+        let state = PersistedState { enabled: t.enabled, start: t.start, end: t.end };
         if let Err(e) = write_state(&state).await {
             warn!("failed to persist state: {e}");
         }
     }
+}
+
+async fn read_capacity(battery_path: &str) -> Option<u8> {
+    let p = PathBuf::from(battery_path).join("capacity");
+    let raw = fs::read_to_string(&p).await.ok()?;
+    raw.trim().parse::<u8>().ok()
 }
 
 async fn read_state() -> std::io::Result<PersistedState> {

@@ -73,6 +73,10 @@ class Indicator extends PanelMenu.Button {
         this._supported = false;
         this._refreshSourceId = 0;
         this._signalIds = [];
+        // Re-entrancy guard: set while we update UI from daemon state so
+        // that programmatic slider/toggle updates don't fire user-action
+        // handlers and trigger a second SetThresholds call.
+        this._syncing = false;
 
         // Panel icon — custom SVG bundled with the extension
         this._iconFile = Gio.File.new_for_path(
@@ -96,6 +100,28 @@ class Indicator extends PanelMenu.Button {
             () => this._applyVisibility(),
         );
         this._applyVisibility();
+
+        // Auto-apply when gsettings change (e.g. user edited Preferences).
+        // Debounced so SpinRow's per-click changes don't fire a dozen
+        // SetThresholds calls.
+        this._pendingApplyId = 0;
+        const scheduleApply = () => {
+            if (this._syncing)
+                return;
+            if (this._pendingApplyId)
+                GLib.source_remove(this._pendingApplyId);
+            this._pendingApplyId = GLib.timeout_add(
+                GLib.PRIORITY_DEFAULT, 400, () => {
+                    this._pendingApplyId = 0;
+                    this._applyFromSettings();
+                    return GLib.SOURCE_REMOVE;
+                });
+        };
+        this._settingsHandlerIds = [
+            this._settings.connect('changed::threshold-start', scheduleApply),
+            this._settings.connect('changed::threshold-end', scheduleApply),
+            this._settings.connect('changed::enabled', scheduleApply),
+        ];
 
         this._buildMenu();
         this._connectProxy();
@@ -121,6 +147,8 @@ class Indicator extends PanelMenu.Button {
             false,
         );
         this._enableSwitch.connect('toggled', (item) => {
+            if (this._syncing)
+                return;
             this._settings.set_boolean('enabled', item.state);
             this._applyFromSettings();
         });
@@ -173,6 +201,8 @@ class Indicator extends PanelMenu.Button {
             valueLabel.text = `${v}%`;
         });
         slider.connect('drag-end', () => {
+            if (this._syncing)
+                return;
             this._settings.set_int(settingsKey, Math.round(slider.value * 100));
         });
 
@@ -212,9 +242,17 @@ class Indicator extends PanelMenu.Button {
     }
 
     _refreshFromProxy() {
-        if (!this._proxy)
+        if (!this._proxy || this._syncing)
             return;
+        this._syncing = true;
+        try {
+            this._doRefreshFromProxy();
+        } finally {
+            this._syncing = false;
+        }
+    }
 
+    _doRefreshFromProxy() {
         try {
             this._supported = this._proxy.Supported;
         } catch (e) {
@@ -231,28 +269,48 @@ class Indicator extends PanelMenu.Button {
         this._icon.remove_style_pseudo_class('disabled');
 
         const vendor = this._proxy.Vendor || 'generic';
+        const minStart = this._proxy.MinStart ?? 0;
+        const maxEnd = this._proxy.MaxEnd ?? 100;
         const start = this._proxy.Start ?? 0;
         const end = this._proxy.End ?? 100;
         const enabled = this._proxy.Enabled ?? false;
 
-        this._statusItem.label.text =
-            _('Active') + `: ${start}%–${end}% (${vendor})`;
+        // Daemon now emulates the lower threshold in software for end-only
+        // backends (xiaomi WMID, sysfs without start file), so the Start
+        // slider is meaningful everywhere — always show it.
+        this._startRow.item.visible = true;
+
+        // Status line that actually tells the user what's going on.
+        if (enabled) {
+            this._statusItem.label.text =
+                _('Active: %d%%–%d%% (%s)').format(start, end, vendor);
+        } else {
+            this._statusItem.label.text =
+                _('Charge limit off (%s)').format(vendor);
+        }
 
         this._setControlsSensitive(true);
         this._enableSwitch.setToggleState(enabled);
 
-        // Reflect daemon-reported values into UI (without re-triggering signals)
-        const settingsStart = this._settings.get_int('threshold-start');
+        // Daemon properties now reflect user intent (the daemon stores
+        // start/end as intent and emulates the lower threshold in software
+        // for end-only backends). Sync gsettings if the daemon snapped end.
         const settingsEnd = this._settings.get_int('threshold-end');
-        if (settingsStart !== start)
-            this._settings.set_int('threshold-start', start);
-        if (settingsEnd !== end)
+        if (settingsEnd !== end && enabled)
             this._settings.set_int('threshold-end', end);
+        const settingsStart = this._settings.get_int('threshold-start');
+        if (settingsStart !== start && enabled)
+            this._settings.set_int('threshold-start', start);
 
-        this._startRow.slider.value = start / 100;
-        this._endRow.slider.value = end / 100;
-        this._startRow.valueLabel.text = `${start}%`;
-        this._endRow.valueLabel.text = `${end}%`;
+        const displayStart = this._settings.get_int('threshold-start');
+        const displayEnd = this._settings.get_int('threshold-end');
+        this._startRow.slider.value = displayStart / 100;
+        this._endRow.slider.value = displayEnd / 100;
+        this._startRow.valueLabel.text = `${displayStart}%`;
+        this._endRow.valueLabel.text = `${displayEnd}%`;
+
+        // Suppress unused-var lint for minStart/maxEnd until we use them.
+        void minStart; void maxEnd;
 
         if (enabled)
             this._icon.add_style_pseudo_class('active');
@@ -286,7 +344,15 @@ class Indicator extends PanelMenu.Button {
                 console.error(`BatteryThreshold: ${error.message}`);
                 return;
             }
-            this._refreshFromProxy();
+            // Daemon emitted PropertiesChanged — GDBusProxy will refresh
+            // its cache and fire `g-properties-changed`, which calls
+            // `_refreshFromProxy`. We also notify the user so Apply has
+            // visible feedback even if the limit doesn't kick in until the
+            // next charge cycle.
+            if (enabled)
+                this._notify(_('Charge limit set to %d%%').format(end));
+            else
+                this._notify(_('Charge limit disabled'));
         });
     }
 
@@ -321,6 +387,15 @@ class Indicator extends PanelMenu.Button {
         if (this._visibilityHandlerId) {
             this._settings.disconnect(this._visibilityHandlerId);
             this._visibilityHandlerId = 0;
+        }
+        if (this._settingsHandlerIds) {
+            for (const id of this._settingsHandlerIds)
+                this._settings.disconnect(id);
+            this._settingsHandlerIds = null;
+        }
+        if (this._pendingApplyId) {
+            GLib.source_remove(this._pendingApplyId);
+            this._pendingApplyId = 0;
         }
         if (this._refreshSourceId) {
             GLib.source_remove(this._refreshSourceId);

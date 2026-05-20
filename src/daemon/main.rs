@@ -61,13 +61,21 @@ async fn main() -> Result<(), DynError> {
 
     info!("D-Bus service registered at {DBUS_PATH}");
 
-    // Periodically emit a state-changed signal so clients stay fresh.
-    let conn_clone = connection.clone();
+    // Software hysteresis worker: re-evaluates the EC limit against the
+    // current battery capacity every 30s. No-op for two-threshold backends
+    // (EC handles it) but essential for Xiaomi and other end-only devices.
+    let state_for_worker = state.clone();
+    let conn_for_worker = connection.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        // Skip the immediate first tick; apply_persisted already reconciled.
+        interval.tick().await;
         loop {
             interval.tick().await;
-            if let Err(e) = dbus_service::emit_state_changed(&conn_clone).await {
+            if let Err(e) = state_for_worker.reconcile().await {
+                tracing::warn!("reconcile failed: {e}");
+            }
+            if let Err(e) = dbus_service::emit_state_changed(&conn_for_worker).await {
                 tracing::debug!("state-changed emit failed: {e}");
             }
         }

@@ -55,6 +55,10 @@ impl VendorBackend for SysfsBackend {
         &self.info
     }
 
+    fn is_end_only(&self) -> bool {
+        !self.has_start
+    }
+
     async fn get_thresholds(&self) -> BackendResult<Thresholds> {
         let end: u8 = read_percent(&self.end_path).await?;
         let start: u8 = if self.has_start {

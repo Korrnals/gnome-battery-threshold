@@ -15,10 +15,12 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::fs;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tracing::debug;
 
 use crate::error::{BackendError, BackendResult};
@@ -82,22 +84,31 @@ impl VendorBackend for XiaomiBackend {
             .unwrap_or(70)
     }
 
+    fn is_end_only(&self) -> bool {
+        true
+    }
+
     async fn get_thresholds(&self) -> BackendResult<Thresholds> {
         Ok(*self.cache.lock().await)
     }
 
     async fn set_thresholds(&self, t: Thresholds) -> BackendResult<()> {
         if !t.enabled {
+            // Reference script calls 0xfb 0x00 twice with a delay between
+            // them; without the gap the EC silently drops the second call.
             disable().await?;
-            *self.cache.lock().await = Thresholds {
-                start: 0,
-                end: 100,
-                enabled: false,
-            };
+            sleep(EC_DELAY).await;
+            disable().await?;
+            let mut cache = self.cache.lock().await;
+            cache.enabled = false;
+            cache.start = 0;
             debug!("xiaomi: charge limit disabled");
             return Ok(());
         }
 
+        // Xiaomi exposes only an end-threshold; start is informational and
+        // always 0. Do NOT snap `start` — snap() targets ALLOWED_END (40..80)
+        // and would yield start=40 for any requested start<45.
         let end = self.snap(t.end);
         let byte = end_to_byte(end).ok_or(BackendError::OutOfRange {
             value: end,
@@ -105,9 +116,15 @@ impl VendorBackend for XiaomiBackend {
             max: 80,
         })?;
 
-        // Write limit, then enable twice (per Arch Wiki).
+        // Sequence per Xiaomi PC Manager / Arch Wiki reference:
+        //   0xfb <limit>; sleep 1; 0xfa 0x00; sleep 1; 0xfa 0x00
+        // The sleeps are required — without them the EC drops calls and
+        // the limit never engages (the WMAA method itself still returns
+        // a success-looking response, which is why it appears to work).
         write_acpi_call(&build_set_buffer(byte)).await?;
+        sleep(EC_DELAY).await;
         write_acpi_call(&build_enable_buffer()).await?;
+        sleep(EC_DELAY).await;
         write_acpi_call(&build_enable_buffer()).await?;
 
         *self.cache.lock().await = Thresholds {
@@ -119,6 +136,9 @@ impl VendorBackend for XiaomiBackend {
         Ok(())
     }
 }
+
+/// EC needs a beat between WMAA calls; back-to-back writes get dropped.
+const EC_DELAY: Duration = Duration::from_millis(1000);
 
 async fn disable() -> BackendResult<()> {
     // 0xfb with zero limit → unlimited charging.

@@ -23,7 +23,7 @@ export default class BatteryThresholdPreferences extends ExtensionPreferences {
         // ─── Thresholds group ────────────────────────────────────────────
         const group = new Adw.PreferencesGroup({
             title: _('Charge Thresholds'),
-            description: _('Limit battery charge to extend its lifespan. Recommended: 30–70%.'),
+            description: _('Limit battery charge to extend its lifespan. Recommended: 30–70%. Changes apply automatically. On laptops whose firmware only supports a stop-charging threshold (e.g. Xiaomi), the daemon emulates the lower threshold in software: it engages the EC limit when the battery reaches End and releases it when the battery drops to Start, so the laptop charges back up.'),
         });
         page.add(group);
 

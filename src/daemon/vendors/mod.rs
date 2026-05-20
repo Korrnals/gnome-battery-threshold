@@ -59,6 +59,13 @@ pub trait VendorBackend: Send + Sync {
         let snapped = ((value as u32 + step as u32 / 2) / step as u32) * step as u32;
         (snapped as u8).clamp(info.min_start, info.max_end)
     }
+
+    /// True when the hardware only supports an upper (stop-charge) threshold.
+    /// The daemon emulates the lower threshold in software for such backends
+    /// by toggling the EC limit based on the current battery capacity.
+    fn is_end_only(&self) -> bool {
+        false
+    }
 }
 
 /// Detect the best backend for this host, in priority order.
