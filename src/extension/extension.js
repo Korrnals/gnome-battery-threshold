@@ -60,6 +60,14 @@ const DEFAULT_END = 70;
 const MIN_RANGE = 10;
 const REFRESH_INTERVAL_SECONDS = 30;
 
+// Discrete End values supported by the Xiaomi WMID EC (see prefs.js).
+// The Start slider stays continuous — it's enforced in software by the
+// daemon and any value is valid.
+const END_VALUES = [40, 50, 60, 70, 80, 90];
+const snapEnd = (pct) => END_VALUES.reduce(
+    (best, v) => Math.abs(v - pct) < Math.abs(best - pct) ? v : best,
+    END_VALUES[0]);
+
 // ─── Panel indicator ────────────────────────────────────────────────────────
 
 const Indicator = GObject.registerClass(
@@ -145,12 +153,13 @@ class Indicator extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Start (min) slider
+        // Start (min) slider — continuous, software-enforced by daemon
         this._startRow = this._makeSliderRow(_('Start'), 'threshold-start');
         this.menu.addMenuItem(this._startRow.item);
 
-        // End (max) slider
-        this._endRow = this._makeSliderRow(_('End'), 'threshold-end');
+        // End (max) slider — snaps to discrete EC steps to match prefs
+        this._endRow = this._makeSliderRow(_('End'), 'threshold-end',
+            {snap: snapEnd});
         this.menu.addMenuItem(this._endRow.item);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -166,7 +175,7 @@ class Indicator extends PanelMenu.Button {
         this.menu.addMenuItem(prefsItem);
     }
 
-    _makeSliderRow(label, settingsKey) {
+    _makeSliderRow(label, settingsKey, {snap} = {}) {
         const item = new PopupMenu.PopupBaseMenuItem({activate: false});
 
         const lbl = new St.Label({
@@ -176,23 +185,29 @@ class Indicator extends PanelMenu.Button {
         });
         item.add_child(lbl);
 
-        const slider = new Slider(this._settings.get_int(settingsKey) / 100);
+        const initial = this._settings.get_int(settingsKey);
+        const slider = new Slider(initial / 100);
         slider.x_expand = true;
 
         const valueLabel = new St.Label({
-            text: `${this._settings.get_int(settingsKey)}%`,
+            text: `${snap ? snap(initial) : initial}%`,
             y_align: Clutter.ActorAlign.CENTER,
             style: 'min-width: 3em; text-align: right;',
         });
 
         slider.connect('notify::value', () => {
-            const v = Math.round(slider.value * 100);
+            const raw = Math.round(slider.value * 100);
+            const v = snap ? snap(raw) : raw;
             valueLabel.text = `${v}%`;
         });
         slider.connect('drag-end', () => {
             if (this._syncing)
                 return;
-            this._settings.set_int(settingsKey, Math.round(slider.value * 100));
+            const raw = Math.round(slider.value * 100);
+            const v = snap ? snap(raw) : raw;
+            if (snap && slider.value !== v / 100)
+                slider.value = v / 100;
+            this._settings.set_int(settingsKey, v);
         });
 
         item.add_child(slider);
@@ -307,6 +322,17 @@ class Indicator extends PanelMenu.Button {
             this._icon.add_style_pseudo_class('active');
         else
             this._icon.remove_style_pseudo_class('active');
+
+        // Visual cue: limit reached and laptop is running directly off AC
+        // (EC bypass mode — battery is neither charging nor discharging).
+        const ac = this._readAcOnline();
+        const rawStatus = this._readBatteryStatusRaw();
+        const limitReached = enabled && ac &&
+            (rawStatus === 'Not charging' || rawStatus === 'Full');
+        if (limitReached)
+            this._icon.add_style_pseudo_class('checked');
+        else
+            this._icon.remove_style_pseudo_class('checked');
     }
 
     _setControlsSensitive(sensitive) {
@@ -412,12 +438,25 @@ class Indicator extends PanelMenu.Button {
     }
 
     _startPeriodicRefresh() {
+        // Two timers: a slow one that asks the daemon to re-read its state
+        // (covers daemon-side changes), and a fast one that just re-reads
+        // sysfs so the icon/status line reflect "limit reached" within a
+        // few seconds of the EC stopping the charge.
         this._refreshSourceId = GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT,
             REFRESH_INTERVAL_SECONDS,
             () => {
                 if (this._proxy)
                     this._proxy.RefreshRemote(() => {});
+                return GLib.SOURCE_CONTINUE;
+            },
+        );
+        this._iconTickSourceId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT,
+            5,
+            () => {
+                if (this._proxy && this._supported)
+                    this._refreshFromProxy();
                 return GLib.SOURCE_CONTINUE;
             },
         );
@@ -455,6 +494,10 @@ class Indicator extends PanelMenu.Button {
         if (this._refreshSourceId) {
             GLib.source_remove(this._refreshSourceId);
             this._refreshSourceId = 0;
+        }
+        if (this._iconTickSourceId) {
+            GLib.source_remove(this._iconTickSourceId);
+            this._iconTickSourceId = 0;
         }
         if (this._proxy) {
             for (const id of this._signalIds) {
