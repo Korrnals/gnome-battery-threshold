@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use tokio::fs;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::error::{BackendError, BackendResult};
 use crate::vendors::{BackendInfo, Thresholds, VendorBackend};
@@ -100,25 +100,29 @@ impl VendorBackend for XiaomiBackend {
             {
                 let cache = self.cache.lock().await;
                 if !cache.enabled {
-                    debug!("xiaomi: disable requested but already disabled, skipping");
+                    info!("xiaomi: disable requested but cache already disabled, skipping ACPI writes");
                     return Ok(());
                 }
             }
             // Reference script calls 0xfb 0x00 twice with a delay between
             // them; without the gap the EC silently drops the second call.
+            info!("xiaomi: writing 0xfb 0x00 (no limit) #1");
             disable().await?;
             sleep(EC_DELAY).await;
+            info!("xiaomi: writing 0xfb 0x00 (no limit) #2");
             disable().await?;
-            // Xiaomi's EC only re-evaluates the limit on an AC plug-in
-            // event, so writing "no limit" while it's in `Not charging`
-            // state leaves it stuck there. Re-bind the ACPI ac driver to
-            // synthesize that event from software (best effort: silently
-            // skipped if the sysfs paths don't exist or aren't writable).
-            kick_ac_driver().await;
+            // NOTE: On this hardware (RedmiBook Pro 16 2025, kernel 6.19)
+            // the EC consults the limit register only on a physical AC
+            // plug-in transition. Writing "no limit" while it is already
+            // in `Not charging` state does NOT resume charging —
+            // confirmed empirically: unbinding/rebinding the platform
+            // `ac` driver does not propagate to the EC either. Document
+            // this in the user-facing notification rather than trying to
+            // simulate a plug event from software.
             let mut cache = self.cache.lock().await;
             cache.enabled = false;
             cache.start = 0;
-            debug!("xiaomi: charge limit disabled");
+            info!("xiaomi: charge limit disabled (EC will resume charging at next physical plug-in event)");
             return Ok(());
         }
 
@@ -136,7 +140,7 @@ impl VendorBackend for XiaomiBackend {
         {
             let cache = self.cache.lock().await;
             if cache.enabled && cache.end == end {
-                debug!("xiaomi: already enabled at {end}%, skipping");
+                info!("xiaomi: cache already enabled at {end}%, skipping ACPI writes");
                 return Ok(());
             }
         }
@@ -146,10 +150,13 @@ impl VendorBackend for XiaomiBackend {
         // The sleeps are required — without them the EC drops calls and
         // the limit never engages (the WMAA method itself still returns
         // a success-looking response, which is why it appears to work).
+        info!("xiaomi: writing 0xfb 0x{byte:02x} (limit={end}%)");
         write_acpi_call(&build_set_buffer(byte)).await?;
         sleep(EC_DELAY).await;
+        info!("xiaomi: writing 0xfa 0x00 (enable) #1");
         write_acpi_call(&build_enable_buffer()).await?;
         sleep(EC_DELAY).await;
+        info!("xiaomi: writing 0xfa 0x00 (enable) #2");
         write_acpi_call(&build_enable_buffer()).await?;
 
         *self.cache.lock().await = Thresholds {
@@ -157,7 +164,7 @@ impl VendorBackend for XiaomiBackend {
             end,
             enabled: true,
         };
-        debug!("xiaomi: charge limit set to {end}%");
+        info!("xiaomi: charge limit engaged at {end}%");
         Ok(())
     }
 }
@@ -168,53 +175,6 @@ const EC_DELAY: Duration = Duration::from_millis(1000);
 async fn disable() -> BackendResult<()> {
     // 0xfb with zero limit → unlimited charging.
     write_acpi_call(&build_set_buffer(0x00)).await
-}
-
-/// Synthesize an AC plug-in event by re-binding the ACPI ac driver.
-///
-/// The Xiaomi EC consults its charge-limit register only when the AC
-/// adapter reports a transition (plug-in). Toggling the kernel driver
-/// binding causes the ACPI layer to re-emit the AC state, which on this
-/// hardware is enough to make the EC resume (or re-stop) charging without
-/// the user physically unplugging the charger.
-///
-/// Best-effort: logs and swallows errors. Requires root, which the
-/// daemon already has.
-async fn kick_ac_driver() {
-    // The AC adapter is bound as a platform driver named "ac" on modern
-    // kernels (the older /sys/bus/acpi/drivers/ac path does not exist).
-    const DRIVER_DIR: &str = "/sys/bus/platform/drivers/ac";
-    let mut entries = match fs::read_dir(DRIVER_DIR).await {
-        Ok(e) => e,
-        Err(e) => {
-            debug!("xiaomi: cannot read {DRIVER_DIR}: {e}");
-            return;
-        }
-    };
-    let mut device: Option<String> = None;
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        // Skip control files (bind/unbind/uevent); device names look
-        // like "ACPI0003:00".
-        if name.contains(':') {
-            device = Some(name);
-            break;
-        }
-    }
-    let Some(dev) = device else {
-        debug!("xiaomi: no ACPI ac device found to kick");
-        return;
-    };
-    if let Err(e) = fs::write(format!("{DRIVER_DIR}/unbind"), &dev).await {
-        debug!("xiaomi: unbind {dev} failed: {e}");
-        return;
-    }
-    sleep(Duration::from_millis(300)).await;
-    if let Err(e) = fs::write(format!("{DRIVER_DIR}/bind"), &dev).await {
-        debug!("xiaomi: bind {dev} failed: {e}");
-        return;
-    }
-    debug!("xiaomi: kicked AC driver ({dev}) to re-trigger EC charge evaluation");
 }
 
 async fn write_acpi_call(cmd: &str) -> BackendResult<()> {
