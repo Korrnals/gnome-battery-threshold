@@ -70,6 +70,19 @@ BUILD_DIR       := target
 GEN_DIR         := $(BUILD_DIR)/generated
 
 # ─────────────────────────────────────────────────────────────────────────────
+# acpi_call source.
+# Traditional Fedora installs from COPR rhea/acpi_call (DKMS).
+# On rpm-ostree atomic, DKMS cannot run in the compose sandbox (writes to
+# /var/lib/dkms which is read-only during compose), and no akmod build exists
+# for current Fedora releases. We instead build acpi_call.ko out-of-tree
+# (inside the distrobox container) and drop it into the host's mutable
+# /var/lib/modules/<kver>/extra/, which modprobe picks up after depmod.
+# ─────────────────────────────────────────────────────────────────────────────
+ACPI_CALL_COPR    ?= rhea/acpi_call
+ACPI_CALL_PKG     ?= acpi_call-dkms
+ACPI_CALL_GIT_URL ?= https://github.com/nix-community/acpi_call.git
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Distro / hardware detection
 # ─────────────────────────────────────────────────────────────────────────────
 DMI_VENDOR      := $(shell cat /sys/class/dmi/id/chassis_vendor 2>/dev/null)
@@ -130,6 +143,8 @@ help:
 	@printf "  $(C_INFO)Install:$(C_RESET)\n"
 	@printf "    sudo make install        Install everything (auto-picks PREFIX; prompts for deps)\n"
 	@printf "    sudo make install BATTERY_THRESHOLD_AUTO_DEPS=1   Auto-install kernel deps\n"
+	@printf "    sudo make install BATTERY_THRESHOLD_APPLY_LIVE=1  Try rpm-ostree --apply-live for deps\n"
+	@printf "    sudo make install BATTERY_THRESHOLD_ACPI_CALL_RPM_URL=<url-to-rpm>  Use custom acpi_call RPM\n"
 	@printf "    sudo make install BATTERY_THRESHOLD_NO_DEPS=1     Skip dep installation\n"
 	@printf "    sudo make install NO_ACTIVATE=1   Install without starting daemon\n"
 	@printf "    sudo make install-deps   Install only the vendor-specific kernel deps\n"
@@ -363,21 +378,78 @@ install-deps:
 	case "$(OS_ID)" in \
 	    fedora) \
 	        if [ "$(OS_VARIANT)" = "silverblue" ] || [ "$(OS_VARIANT)" = "kinoite" ] || [ "$(OS_VARIANT)" = "sericea" ]; then \
-	            printf "$(C_INFO)▸ Fedora Atomic — layering RPM Fusion + akmod-acpi_call via rpm-ostree$(C_RESET)\n"; \
-	            printf "$(C_WARN)  Note: rpm-ostree stages changes; you will need to REBOOT to load the module.$(C_RESET)\n"; \
-	            $(HSUDO) rpm-ostree install --idempotent \
-	                https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(OS_VERSION).noarch.rpm \
-	                || printf "$(C_WARN)  RPM Fusion layer may already be present.$(C_RESET)\n"; \
-	            $(HSUDO) rpm-ostree install --idempotent akmod-acpi_call \
-	                || printf "$(C_WARN)  akmod-acpi_call queued — reboot, then re-run 'sudo make install'.$(C_RESET)\n"; \
-	            printf "$(C_BOLD)→ Reboot now (sudo systemctl reboot), then re-run 'sudo make install'.$(C_RESET)\n"; \
-	            exit 0; \
+	            if [ "$(IS_DISTROBOX)" != "yes" ]; then \
+	                printf "$(C_ERR)  On rpm-ostree atomic systems the acpi_call module must be built$(C_RESET)\n"; \
+	                printf "$(C_ERR)  out-of-tree. Re-run 'sudo make install-deps' from inside a distrobox$(C_RESET)\n"; \
+	                printf "$(C_ERR)  or toolbox container (where kernel-devel can be installed).$(C_RESET)\n"; \
+	                exit 1; \
+	            fi; \
+	            KVER=$$($(HOST_EXEC) uname -r 2>/dev/null); \
+	            [ -n "$$KVER" ] || { printf "$(C_ERR)  Could not read host kernel version.$(C_RESET)\n"; exit 1; }; \
+	            printf "$(C_INFO)▸ Atomic Fedora — building acpi_call.ko out-of-tree for kernel %s$(C_RESET)\n" "$$KVER"; \
+	            WORKDIR=$$(mktemp -d); \
+	            trap "rm -rf $$WORKDIR" EXIT; \
+	            printf "$(C_INFO)  ▸ Installing build deps in container$(C_RESET)\n"; \
+	            if ! sudo dnf install -y --setopt=install_weak_deps=False \
+	                kernel-devel-$$KVER gcc make git rpm-build 2>&1; then \
+	                K_ARCH=$${KVER##*.}; \
+	                K_VR=$${KVER%.*}; \
+	                K_VER=$${K_VR%-*}; \
+	                K_REL=$${K_VR#*-}; \
+	                KOJI_URL="https://kojipkgs.fedoraproject.org/packages/kernel/$$K_VER/$$K_REL/$$K_ARCH/kernel-devel-$$K_VER-$$K_REL.$$K_ARCH.rpm"; \
+	                printf "$(C_WARN)  kernel-devel-$$KVER not in repos; trying Koji archive$(C_RESET)\n"; \
+	                printf "$(C_INFO)  ▸ %s$(C_RESET)\n" "$$KOJI_URL"; \
+	                sudo dnf install -y --setopt=install_weak_deps=False \
+	                    "$$KOJI_URL" gcc make git rpm-build \
+	                    || { printf "$(C_ERR)  Failed to install kernel-devel from Koji.$(C_RESET)\n"; \
+	                         printf "$(C_ERR)  Host kernel: %s$(C_RESET)\n" "$$KVER"; \
+	                         exit 1; }; \
+	            fi; \
+	            printf "$(C_INFO)  ▸ Cloning %s$(C_RESET)\n" "$(ACPI_CALL_GIT_URL)"; \
+	            git clone --depth 1 "$(ACPI_CALL_GIT_URL)" "$$WORKDIR/src" \
+	                || { printf "$(C_ERR)  git clone failed.$(C_RESET)\n"; exit 1; }; \
+	            printf "$(C_INFO)  ▸ Compiling acpi_call.ko$(C_RESET)\n"; \
+	            make -C /usr/src/kernels/$$KVER M="$$WORKDIR/src" modules \
+	                || { printf "$(C_ERR)  Module build failed.$(C_RESET)\n"; exit 1; }; \
+	            [ -f "$$WORKDIR/src/acpi_call.ko" ] \
+	                || { printf "$(C_ERR)  acpi_call.ko not produced.$(C_RESET)\n"; exit 1; }; \
+	            printf "$(C_INFO)  ▸ Packaging acpi_call-kmod-%s rpm$(C_RESET)\n" "$$KVER"; \
+	            mkdir -p "$$WORKDIR/rpmbuild"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}; \
+	            cp "$$WORKDIR/src/acpi_call.ko" "$$WORKDIR/rpmbuild/SOURCES/acpi_call.ko"; \
+	            rpmbuild --define "_topdir $$WORKDIR/rpmbuild" \
+	                     --define "kver $$KVER" \
+	                     -bb data/rpm/acpi_call-kmod.spec \
+	                || { printf "$(C_ERR)  rpmbuild failed.$(C_RESET)\n"; exit 1; }; \
+	            RPM_FILE=$$(find "$$WORKDIR/rpmbuild/RPMS" -type f -name '*.rpm' | head -1); \
+	            [ -n "$$RPM_FILE" ] \
+	                || { printf "$(C_ERR)  No RPM produced.$(C_RESET)\n"; exit 1; }; \
+	            HOST_RPM="$(REAL_HOME)/.cache/acpi_call-kmod-$$KVER.rpm"; \
+	            mkdir -p "$(REAL_HOME)/.cache"; \
+	            cp "$$RPM_FILE" "$$HOST_RPM" \
+	                || { printf "$(C_ERR)  Could not stage RPM to %s$(C_RESET)\n" "$$HOST_RPM"; exit 1; }; \
+	            printf "$(C_INFO)  ▸ Loading acpi_call into running kernel (insmod)$(C_RESET)\n"; \
+	            $(HSUDO) insmod "$$WORKDIR/src/acpi_call.ko" 2>/dev/null \
+	                || $(HSUDO) sh -c "lsmod | grep -q '^acpi_call'" \
+	                || printf "$(C_WARN)  insmod failed — Secure Boot may block unsigned modules.$(C_RESET)\n"; \
+	            $(HSUDO) sh -c 'echo acpi_call > /etc/modules-load.d/acpi_call.conf' \
+	                || printf "$(C_WARN)  Could not persist /etc/modules-load.d/acpi_call.conf$(C_RESET)\n"; \
+	            printf "$(C_INFO)  ▸ Layering RPM via rpm-ostree (persists across reboots)$(C_RESET)\n"; \
+	            if $(HSUDO) rpm-ostree install --idempotent --assumeyes "$$HOST_RPM" 2>&1; then \
+	                printf "$(C_OK)✓ acpi_call layered; will be available after reboot.$(C_RESET)\n"; \
+	            else \
+	                printf "$(C_WARN)  rpm-ostree install failed (module is still loaded for current boot).$(C_RESET)\n"; \
+	                printf "$(C_WARN)  RPM kept at %s — install manually with: sudo rpm-ostree install %s$(C_RESET)\n" "$$HOST_RPM" "$$HOST_RPM"; \
+	            fi; \
+	            if $(HSUDO) sh -c "lsmod | grep -q '^acpi_call'"; then \
+	                printf "$(C_OK)✓ acpi_call active in running kernel ($$KVER).$(C_RESET)\n"; \
+	            fi; \
 	        else \
-	            printf "$(C_INFO)▸ Fedora — installing RPM Fusion + akmod-acpi_call via dnf$(C_RESET)\n"; \
-	            $(HSUDO) dnf install -y \
-	                https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(OS_VERSION).noarch.rpm \
-	                || true; \
-	            $(HSUDO) dnf install -y akmod-acpi_call kernel-devel || \
+	            COPR_REPO=$${BATTERY_THRESHOLD_ACPI_CALL_COPR:-$(ACPI_CALL_COPR)}; \
+	            printf "$(C_INFO)▸ Fedora — enabling COPR %s and installing %s via dnf$(C_RESET)\n" "$$COPR_REPO" "$(ACPI_CALL_PKG)"; \
+	            $(HSUDO) dnf install -y dnf-plugins-core || true; \
+	            $(HSUDO) dnf copr enable -y "$$COPR_REPO" || \
+	                { printf "$(C_ERR)  Failed to enable COPR repo $$COPR_REPO.$(C_RESET)\n"; exit 1; }; \
+	            $(HSUDO) dnf install -y $(ACPI_CALL_PKG) kernel-devel dkms || \
 	                { printf "$(C_ERR)  Package install failed. See 'make deps'.$(C_RESET)\n"; exit 1; }; \
 	            $(HSUDO) modprobe acpi_call 2>/dev/null || \
 	                printf "$(C_WARN)  Module not loadable yet — reboot may be required.$(C_RESET)\n"; \
