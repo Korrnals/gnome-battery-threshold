@@ -203,8 +203,13 @@ doctor:
 	    printf "    Run: $(C_BOLD)make deps$(C_RESET)\n"; \
 	elif [ -n "$(HAS_SYSFS_END)" ]; then \
 	    printf "  $(C_OK)→ sysfs backend available — no kernel module needed.$(C_RESET)\n"; \
+	elif [ "$(HAS_ACPI_CALL)" = "no" ]; then \
+	    printf "  $(C_WARN)→ No charge-control backend detected. Try installing acpi_call:$(C_RESET)\n"; \
+	    printf "    Run: $(C_BOLD)sudo make install-deps$(C_RESET) (auto) or $(C_BOLD)make deps$(C_RESET) (guide).\n"; \
+	    printf "    If still unsupported afterwards, run $(C_BOLD)make probe$(C_RESET) and open an issue.\n"; \
 	else \
-	    printf "  $(C_WARN)→ No charge-control mechanism detected on this hardware.$(C_RESET)\n"; \
+	    printf "  $(C_OK)→ acpi_call is loaded.$(C_RESET) If the daemon still reports 'unsupported',\n"; \
+	    printf "    run $(C_BOLD)make probe$(C_RESET) and open an issue at $(PROJECT_URL)\n"; \
 	fi
 
 _check_installed:
@@ -238,14 +243,20 @@ deps:
 	    printf "$(C_OK)✓ sysfs backend is available — no extra kernel modules required.$(C_RESET)\n"; \
 	    exit 0; \
 	fi; \
+	if [ "$(HAS_ACPI_CALL)" = "yes" ]; then \
+	    printf "$(C_OK)✓ acpi_call is loaded — you're all set.$(C_RESET)\n"; \
+	    exit 0; \
+	fi; \
 	if [ "$(IS_XIAOMI)" = "yes" ] || [ "$(IS_THINKPAD)" = "yes" ]; then \
-	    if [ "$(HAS_ACPI_CALL)" = "yes" ]; then \
-	        printf "$(C_OK)✓ acpi_call is loaded — you're all set.$(C_RESET)\n"; \
-	        exit 0; \
-	    fi; \
 	    printf "$(C_WARN)Missing: acpi_call kernel module$(C_RESET)\n\n"; \
 	    printf "Required for Xiaomi/Redmi and some ThinkPads.\n\n"; \
-	    case "$(OS_ID)" in \
+	else \
+	    printf "$(C_WARN)Missing: acpi_call kernel module$(C_RESET)\n\n"; \
+	    printf "sysfs charge_control_* not exposed by '$(DMI_VENDOR) $(DMI_PRODUCT)'.\n"; \
+	    printf "acpi_call works on many laptops (Xiaomi/Redmi, some Asus, MSI, Lenovo).\n"; \
+	    printf "It is safe to try — run 'make probe' afterwards to confirm support.\n\n"; \
+	fi; \
+	case "$(OS_ID)" in \
 	        fedora) \
 	            if [ "$(OS_VARIANT)" = "silverblue" ] || [ "$(OS_VARIANT)" = "kinoite" ] || [ "$(OS_VARIANT)" = "sericea" ]; then \
 	                printf "$(C_INFO)Fedora Atomic ($(OS_VARIANT)) — via rpm-ostree:$(C_RESET)\n"; \
@@ -276,12 +287,7 @@ deps:
 	            printf "$(C_INFO)Generic — check your distro for 'acpi_call' or 'acpi-call'.$(C_RESET)\n"; \
 	            printf "  Source: https://github.com/nix-community/acpi_call\n" ;; \
 	    esac; \
-	    printf "\nAfter installation, verify with:\n  $(C_BOLD)test -e /proc/acpi/call && echo OK$(C_RESET)\n"; \
-	else \
-	    printf "$(C_WARN)Hardware is not Xiaomi/ThinkPad and lacks sysfs charge_control_*.$(C_RESET)\n"; \
-	    printf "This laptop may not support charge thresholds at all.\n"; \
-	    printf "Run $(C_BOLD)make probe$(C_RESET) and open an issue at $(PROJECT_URL)\n"; \
-	fi
+	    printf "\nAfter installation, verify with:\n  $(C_BOLD)test -e /proc/acpi/call && echo OK$(C_RESET)\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # build
@@ -355,12 +361,12 @@ install-deps:
 	    printf "$(C_OK)✓ Charge-control backend already available — no extra deps needed.$(C_RESET)\n"; \
 	    exit 0; \
 	fi; \
-	if [ "$(IS_XIAOMI)" != "yes" ] && [ "$(IS_THINKPAD)" != "yes" ]; then \
-	    printf "$(C_WARN)⚠ Hardware is '$(DMI_VENDOR) $(DMI_PRODUCT)' — vendor not in auto-deps list.$(C_RESET)\n"; \
-	    printf "  Run 'make probe' and 'make deps' for guidance.\n"; \
-	    exit 0; \
+	if [ "$(IS_XIAOMI)" = "yes" ] || [ "$(IS_THINKPAD)" = "yes" ]; then \
+	    printf "$(C_WARN)▸ acpi_call kernel module is required for $(DMI_VENDOR) hardware.$(C_RESET)\n"; \
+	else \
+	    printf "$(C_WARN)▸ No sysfs charge-control on '$(DMI_VENDOR) $(DMI_PRODUCT)'.$(C_RESET)\n"; \
+	    printf "$(C_INFO)  Will try to install the acpi_call kernel module — it works on many laptops\n  not yet covered by sysfs. Run 'make probe' afterwards to verify support.$(C_RESET)\n"; \
 	fi; \
-	printf "$(C_WARN)▸ acpi_call kernel module is required for $(DMI_VENDOR) hardware.$(C_RESET)\n"; \
 	REPLY=y; \
 	if [ -z "$$BATTERY_THRESHOLD_AUTO_DEPS" ]; then \
 	    if [ -t 0 ] && [ -t 1 ]; then \
