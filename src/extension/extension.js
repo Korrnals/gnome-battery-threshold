@@ -138,6 +138,7 @@ class Indicator extends PanelMenu.Button {
         // layer so the icon updates even if proxy signals are broken or
         // the refresh callback never fires.  Reads sysfs every 2s and
         // swaps the icon based on the real battery status.
+        this._updateIconFromSysfs();  // immediate first paint
         this._sysfsTickSourceId = GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT,
             2,
@@ -277,7 +278,6 @@ class Indicator extends PanelMenu.Button {
     }
 
     _refreshFromProxy() {
-        log(`BatteryThreshold: _refreshFromProxy called, proxy=${!!this._proxy}, syncing=${this._syncing}`);
         if (!this._proxy || this._syncing)
             return;
         this._syncing = true;
@@ -344,29 +344,27 @@ class Indicator extends PanelMenu.Button {
         // Suppress unused-var lint for minStart/maxEnd until we use them.
         void minStart; void maxEnd; void start; void end;
 
-        // Visual cue: swap the icon to a hard-coloured SVG so we don't rely
-        // on St's broken CSS colour propagation for symbolic icons.
+        // Visual cue: swap the visible icon to one of three hard-coloured
+        // SVGs (grey/green/blue).  We swap visible-child rather than gicon
+        // because St caches gicons and may not repaint on swap.
         const ac = this._readAcOnline();
         const rawStatus = this._readBatteryStatusRaw();
         const limitReached = enabled && ac &&
             (rawStatus === 'Not charging' || rawStatus === 'Full');
-        log(`BatteryThreshold: _doRefresh rawStatus=${rawStatus} ac=${ac} limitReached=${limitReached}`);
         const target = limitReached ? 'limit' : (enabled ? 'active' : 'symbolic');
         for (const [name, icon] of Object.entries(this._iconMap)) {
             icon.visible = (name === target);
         }
-
-        // Xiaomi (and some other) ECs don't fire a uevent when the EC
-        // stops charging, so UPower keeps reporting state=Charging until
-        // its ~30s poll cycle catches up. We can't force an earlier poll
-        // (org.freedesktop.UPower.Device.Refresh was made private in
-        // UPower 0.99 and isn't reachable from session code), so all we
-        // can do is wait. Log the transition so it shows up in journalctl
-        // and we can verify behaviour without guesswork.
-        if (this._lastLimitReached !== limitReached) {
-            this._lastLimitReached = limitReached;
-            log(`BatteryThreshold: TRANSITION limit-reached=${limitReached}`);
-        }
+        // Note about the system battery icon (the one drawn by gnome-shell
+        // itself, to the right of our extension icon): UPower polls sysfs
+        // ~every 30s and reacts to udev events.  On Xiaomi the EC stops
+        // charging silently without firing a uevent, so the system icon
+        // keeps the lightning bolt for up to 30s after the limit engages.
+        // The session-bus UPower API does not expose a way to force an
+        // earlier refresh (Refresh on Device was made private in 0.99).
+        // The system icon will catch up by itself; our extension icon
+        // reflects the truth immediately.
+        this._lastLimitReached = limitReached;
     }
 
     _setControlsSensitive(sensitive) {
