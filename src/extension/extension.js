@@ -86,21 +86,32 @@ class Indicator extends PanelMenu.Button {
         // handlers and trigger a second SetThresholds call.
         this._syncing = false;
 
-        // Panel icon — custom SVG bundled with the extension
-        this._iconFile = Gio.File.new_for_path(
-            `${extension.path}/icons/battery-threshold-symbolic.svg`);
-        let panelGicon;
-        try {
-            panelGicon = Gio.icon_new_for_string(this._iconFile.get_path());
-        } catch (e) {
-            log(`Battery Threshold: failed to load custom icon, using fallback: ${e}`);
-            panelGicon = Gio.ThemedIcon.new('battery-good-symbolic');
+        // Panel icons — three hard-coloured SVGs in a BoxLayout.
+        // We switch visible child instead of swapping gicon or CSS colour,
+        // because St.Icon ignores inline colour and gicon swaps don't
+        // always repaint immediately.  visible is a basic Clutter property
+        // and always works.
+        this._iconBox = new St.BoxLayout({ style_class: 'battery-threshold-icon-box' });
+        this._iconMap = {};
+        for (const name of ['symbolic', 'active', 'limit']) {
+            const f = Gio.File.new_for_path(`${extension.path}/icons/battery-threshold-${name}.svg`);
+            let gicon;
+            try {
+                gicon = Gio.icon_new_for_string(f.get_path());
+            } catch (e) {
+                log(`Battery Threshold: failed to load ${name} icon: ${e}`);
+                gicon = Gio.ThemedIcon.new('battery-good-symbolic');
+            }
+            const icon = new St.Icon({
+                gicon,
+                style_class: 'system-status-icon battery-threshold-icon',
+                visible: false,
+            });
+            this._iconMap[name] = icon;
+            this._iconBox.add_child(icon);
         }
-        this._icon = new St.Icon({
-            gicon: panelGicon,
-            style_class: 'system-status-icon battery-threshold-icon',
-        });
-        this.add_child(this._icon);
+        this._iconMap['symbolic'].visible = true;
+        this.add_child(this._iconBox);
 
         // Visibility follows show-indicator setting
         this._visibilityHandlerId = this._settings.connect(
@@ -122,6 +133,19 @@ class Indicator extends PanelMenu.Button {
 
         this._buildMenu();
         this._connectProxy();
+
+        // Direct sysfs poller for the icon — bypasses the entire D-Bus
+        // layer so the icon updates even if proxy signals are broken or
+        // the refresh callback never fires.  Reads sysfs every 2s and
+        // swaps the icon based on the real battery status.
+        this._sysfsTickSourceId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT,
+            2,
+            () => {
+                this._updateIconFromSysfs();
+                return GLib.SOURCE_CONTINUE;
+            },
+        );
     }
 
     _applyVisibility() {
@@ -231,13 +255,20 @@ class Indicator extends PanelMenu.Button {
                     return;
                 }
                 this._proxy = proxy;
+                log('BatteryThreshold: proxy connected');
                 this._signalIds.push(proxy.connectSignal(
                     'StateChanged',
-                    () => this._refreshFromProxy(),
+                    () => {
+                        log('BatteryThreshold: StateChanged signal');
+                        this._refreshFromProxy();
+                    },
                 ));
                 this._signalIds.push(proxy.connect(
                     'g-properties-changed',
-                    () => this._refreshFromProxy(),
+                    () => {
+                        log('BatteryThreshold: g-properties-changed');
+                        this._refreshFromProxy();
+                    },
                 ));
                 this._refreshFromProxy();
                 this._startPeriodicRefresh();
@@ -246,6 +277,7 @@ class Indicator extends PanelMenu.Button {
     }
 
     _refreshFromProxy() {
+        log(`BatteryThreshold: _refreshFromProxy called, proxy=${!!this._proxy}, syncing=${this._syncing}`);
         if (!this._proxy || this._syncing)
             return;
         this._syncing = true;
@@ -266,11 +298,8 @@ class Indicator extends PanelMenu.Button {
         if (!this._supported) {
             this._statusItem.label.text = _('Not supported on this device');
             this._setControlsSensitive(false);
-            this._icon.remove_style_pseudo_class('active');
-            this._icon.add_style_pseudo_class('disabled');
             return;
         }
-        this._icon.remove_style_pseudo_class('disabled');
 
         const vendor = this._proxy.Vendor || 'generic';
         const minStart = this._proxy.MinStart ?? 0;
@@ -315,20 +344,16 @@ class Indicator extends PanelMenu.Button {
         // Suppress unused-var lint for minStart/maxEnd until we use them.
         void minStart; void maxEnd; void start; void end;
 
-        // Visual cue: icon colour reflects what's actually happening.
-        // We use inline style (not CSS classes/pseudo-classes) because St's
-        // CSS engine is unreliable for St.Icon — classes and pseudo-classes
-        // often fail to apply or get overridden by the default theme.
+        // Visual cue: swap the icon to a hard-coloured SVG so we don't rely
+        // on St's broken CSS colour propagation for symbolic icons.
         const ac = this._readAcOnline();
         const rawStatus = this._readBatteryStatusRaw();
         const limitReached = enabled && ac &&
             (rawStatus === 'Not charging' || rawStatus === 'Full');
-        if (limitReached) {
-            this._icon.set_style('color: #62a0ea;');   // blue — AC bypass
-        } else if (enabled) {
-            this._icon.set_style('color: #57e389;');   // green — charging up to limit
-        } else {
-            this._icon.set_style('');                  // default — no limit
+        log(`BatteryThreshold: _doRefresh rawStatus=${rawStatus} ac=${ac} limitReached=${limitReached}`);
+        const target = limitReached ? 'limit' : (enabled ? 'active' : 'symbolic');
+        for (const [name, icon] of Object.entries(this._iconMap)) {
+            icon.visible = (name === target);
         }
 
         // Xiaomi (and some other) ECs don't fire a uevent when the EC
@@ -340,7 +365,7 @@ class Indicator extends PanelMenu.Button {
         // and we can verify behaviour without guesswork.
         if (this._lastLimitReached !== limitReached) {
             this._lastLimitReached = limitReached;
-            console.log(`BatteryThreshold: limit-reached=${limitReached} (status=${rawStatus} ac=${ac})`);
+            log(`BatteryThreshold: TRANSITION limit-reached=${limitReached}`);
         }
     }
 
@@ -427,6 +452,22 @@ class Indicator extends PanelMenu.Button {
     _readAcOnline() {
         const v = this._readSysfsFirst('/sys/class/power_supply', /^(AC|ADP)/, 'online');
         return v === '1' || v === 1;
+    }
+
+    // Direct sysfs icon update — bypasses D-Bus proxy entirely.
+    // Called every 2s by the dedicated timer so the icon always reflects
+    // the real battery state even when proxy signals or refresh callbacks
+    // are silently broken.
+    _updateIconFromSysfs() {
+        const enabled = this._settings.get_boolean('enabled');
+        const ac = this._readAcOnline();
+        const rawStatus = this._readBatteryStatusRaw();
+        const limitReached = enabled && ac &&
+            (rawStatus === 'Not charging' || rawStatus === 'Full');
+        const target = limitReached ? 'limit' : (enabled ? 'active' : 'symbolic');
+        for (const [name, icon] of Object.entries(this._iconMap)) {
+            icon.visible = (name === target);
+        }
     }
 
     // Finds the first directory in `dir` matching `pattern` and returns the
@@ -517,6 +558,10 @@ class Indicator extends PanelMenu.Button {
         if (this._iconTickSourceId) {
             GLib.source_remove(this._iconTickSourceId);
             this._iconTickSourceId = 0;
+        }
+        if (this._sysfsTickSourceId) {
+            GLib.source_remove(this._sysfsTickSourceId);
+            this._sysfsTickSourceId = 0;
         }
         if (this._proxy) {
             for (const id of this._signalIds) {
