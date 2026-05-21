@@ -513,10 +513,10 @@ install-system: check-root generate
 
 install-extension: extension
 	@printf "$(C_INFO)▸ Installing GNOME extension → $(EXTENSION_DIR)$(C_RESET)\n"
-	@mkdir -p "$(EXTENSION_DIR)"
-	@cp -r $(BUILD_DIR)/extension/* "$(EXTENSION_DIR)/"
+	@$(HOST_EXEC) mkdir -p "$(EXTENSION_DIR)"
+	@$(HOST_EXEC) cp -r $(BUILD_DIR)/extension/* "$(EXTENSION_DIR)/"
 	@if [ -n "$(SUDO_USER)" ] && [ -d "$(EXTENSION_DIR)" ]; then \
-	    chown -R $(SUDO_USER): "$(EXTENSION_DIR)"; \
+	    $(HSUDO) chown -R $(SUDO_USER): "$(EXTENSION_DIR)"; \
 	fi
 
 uninstall: check-root
@@ -531,7 +531,7 @@ uninstall: check-root
 	$(HSUDO) rm -f $(DESTDIR)$(GSCHEMA_DIR)/io.github.korrnals.BatteryThreshold.gschema.xml
 	-$(HSUDO) glib-compile-schemas $(DESTDIR)$(GSCHEMA_DIR) 2>/dev/null || true
 	@printf "$(C_INFO)▸ Removing extension$(C_RESET)\n"
-	rm -rf "$(EXTENSION_DIR)"
+	$(HOST_EXEC) rm -rf "$(EXTENSION_DIR)"
 	-$(HSUDO) systemctl daemon-reload 2>/dev/null || true
 	@printf "$(C_OK)✓ Uninstalled.$(C_RESET) State dir /var/lib/$(DAEMON_NAME) preserved.\n"
 

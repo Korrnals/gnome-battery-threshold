@@ -5,8 +5,7 @@
 }
 
 .battery-threshold-icon {
-    icon-size: 16px;
-    -st-icon-style: symbolic;
+    icon-size: 20px !important;
     opacity: 0.85;
 }
 

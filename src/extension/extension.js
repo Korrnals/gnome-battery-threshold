@@ -86,18 +86,18 @@ class Indicator extends PanelMenu.Button {
         // handlers and trigger a second SetThresholds call.
         this._syncing = false;
 
-        // Panel icons — three hard-coloured SVGs in a BoxLayout.
+        // Panel icons — four hard-coloured state SVGs in a BoxLayout.
         // We switch visible child instead of swapping gicon or CSS colour,
         // because St.Icon ignores inline colour and gicon swaps don't
         // always repaint immediately.  visible is a basic Clutter property
         // and always works.
         this._iconBox = new St.BoxLayout({ style_class: 'battery-threshold-icon-box' });
         this._iconMap = {};
-        for (const name of ['symbolic', 'active', 'limit']) {
+        for (const name of ['disabled', 'armed', 'active', 'limit']) {
             const f = Gio.File.new_for_path(`${extension.path}/icons/battery-threshold-${name}.svg`);
             let gicon;
             try {
-                gicon = Gio.icon_new_for_string(f.get_path());
+                gicon = Gio.FileIcon.new(f);
             } catch (e) {
                 log(`Battery Threshold: failed to load ${name} icon: ${e}`);
                 gicon = Gio.ThemedIcon.new('battery-good-symbolic');
@@ -110,7 +110,7 @@ class Indicator extends PanelMenu.Button {
             this._iconMap[name] = icon;
             this._iconBox.add_child(icon);
         }
-        this._iconMap['symbolic'].visible = true;
+        this._iconMap['disabled'].visible = true;
         this.add_child(this._iconBox);
 
         // Visibility follows show-indicator setting
@@ -302,10 +302,6 @@ class Indicator extends PanelMenu.Button {
         }
 
         const vendor = this._proxy.Vendor || 'generic';
-        const minStart = this._proxy.MinStart ?? 0;
-        const maxEnd = this._proxy.MaxEnd ?? 100;
-        const start = this._proxy.Start ?? 0;
-        const end = this._proxy.End ?? 100;
         const enabled = this._proxy.Enabled ?? false;
 
         // Daemon now emulates the lower threshold in software for end-only
@@ -341,20 +337,10 @@ class Indicator extends PanelMenu.Button {
         this._startRow.valueLabel.text = `${displayStart}%`;
         this._endRow.valueLabel.text = `${displayEnd}%`;
 
-        // Suppress unused-var lint for minStart/maxEnd until we use them.
-        void minStart; void maxEnd; void start; void end;
-
-        // Visual cue: swap the visible icon to one of three hard-coloured
-        // SVGs (grey/green/blue).  We swap visible-child rather than gicon
-        // because St caches gicons and may not repaint on swap.
-        const ac = this._readAcOnline();
-        const rawStatus = this._readBatteryStatusRaw();
-        const limitReached = enabled && ac &&
-            (rawStatus === 'Not charging' || rawStatus === 'Full');
-        const target = limitReached ? 'limit' : (enabled ? 'active' : 'symbolic');
-        for (const [name, icon] of Object.entries(this._iconMap)) {
-            icon.visible = (name === target);
-        }
+        // Icon state is owned exclusively by _updateIconFromSysfs (2s
+        // timer). Doing it here too caused flicker because that path used
+        // this._proxy.Enabled while the sysfs poller used the GSettings
+        // 'enabled' key, and the two could disagree mid-Apply.
         // Note about the system battery icon (the one drawn by gnome-shell
         // itself, to the right of our extension icon): UPower polls sysfs
         // ~every 30s and reacts to udev events.  On Xiaomi the EC stops
@@ -364,7 +350,6 @@ class Indicator extends PanelMenu.Button {
         // earlier refresh (Refresh on Device was made private in 0.99).
         // The system icon will catch up by itself; our extension icon
         // reflects the truth immediately.
-        this._lastLimitReached = limitReached;
     }
 
     _setControlsSensitive(sensitive) {
@@ -462,7 +447,15 @@ class Indicator extends PanelMenu.Button {
         const rawStatus = this._readBatteryStatusRaw();
         const limitReached = enabled && ac &&
             (rawStatus === 'Not charging' || rawStatus === 'Full');
-        const target = limitReached ? 'limit' : (enabled ? 'active' : 'symbolic');
+        let target;
+        if (!enabled)
+            target = 'disabled';
+        else if (limitReached)
+            target = 'limit';
+        else if (ac)
+            target = 'active';
+        else
+            target = 'armed';
         for (const [name, icon] of Object.entries(this._iconMap)) {
             icon.visible = (name === target);
         }
@@ -544,10 +537,6 @@ class Indicator extends PanelMenu.Button {
             for (const id of this._settingsHandlerIds)
                 this._settings.disconnect(id);
             this._settingsHandlerIds = null;
-        }
-        if (this._pendingApplyId) {
-            GLib.source_remove(this._pendingApplyId);
-            this._pendingApplyId = 0;
         }
         if (this._refreshSourceId) {
             GLib.source_remove(this._refreshSourceId);

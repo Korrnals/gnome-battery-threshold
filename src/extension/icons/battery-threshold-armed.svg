@@ -4,8 +4,7 @@
   <rect x="1" y="4.5" width="11.5" height="7" rx="1" fill="none" stroke="#9a9996" stroke-width="1.4"/>
   <!-- Terminal nub -->
   <rect x="12.5" y="6.25" width="1.6" height="3.5" rx="0.4" fill="#9a9996"/>
-  <!-- Green fill (charging within range) -->
-  <rect x="2.2" y="5.6" width="6" height="4.8" rx="0.4" fill="#57e389"/>
-  <!-- White lightning bolt -->
-  <path d="M 5.8 5.5 L 3.5 8.3 L 4.9 8.3 L 4.0 10.7 L 6.5 7.8 L 5.0 7.8 Z" fill="#ffffff"/>
+  <!-- Green armed badge (bottom-right) -->
+  <circle cx="12.5" cy="12.5" r="3" fill="#1d1d1d"/>
+  <circle cx="12.5" cy="12.5" r="1.7" fill="#57e389"/>
 </svg>
