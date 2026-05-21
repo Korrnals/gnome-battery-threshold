@@ -69,7 +69,11 @@ impl VendorBackend for SysfsBackend {
         // sysfs has no separate "enabled" concept — anything other than 0/100
         // is considered enabled.
         let enabled = !(start == 0 && end == 100);
-        Ok(Thresholds { start, end, enabled })
+        Ok(Thresholds {
+            start,
+            end,
+            enabled,
+        })
     }
 
     async fn set_thresholds(&self, t: Thresholds) -> BackendResult<()> {

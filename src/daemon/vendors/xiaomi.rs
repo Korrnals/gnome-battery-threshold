@@ -179,12 +179,10 @@ async fn disable() -> BackendResult<()> {
 }
 
 async fn write_acpi_call(cmd: &str) -> BackendResult<()> {
-    fs::write(ACPI_CALL, cmd)
-        .await
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::PermissionDenied => BackendError::PermissionDenied,
-            _ => BackendError::Io(e),
-        })
+    fs::write(ACPI_CALL, cmd).await.map_err(|e| match e.kind() {
+        std::io::ErrorKind::PermissionDenied => BackendError::PermissionDenied,
+        _ => BackendError::Io(e),
+    })
 }
 
 /// 0xfb — set charge limit. `limit_byte` is the value in buffer[6].
@@ -235,7 +233,11 @@ mod tests {
         assert_eq!(set.matches("0x").count(), 34);
         assert_eq!(enable.matches("0x").count(), 34);
         // Buffer payload (between braces) must be exactly 32 bytes.
-        let payload = set.split('{').nth(1).unwrap().trim_end_matches(|c: char| c.is_whitespace() || c == '}');
+        let payload = set
+            .split('{')
+            .nth(1)
+            .unwrap()
+            .trim_end_matches(|c: char| c.is_whitespace() || c == '}');
         assert_eq!(payload.split_whitespace().count(), 32);
     }
 

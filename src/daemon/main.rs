@@ -28,10 +28,7 @@ type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 async fn main() -> Result<(), DynError> {
     init_tracing();
 
-    info!(
-        "battery-thresholdd {} starting",
-        env!("CARGO_PKG_VERSION")
-    );
+    info!("battery-thresholdd {} starting", env!("CARGO_PKG_VERSION"));
 
     // Detect hardware and initialize shared state
     let state = match SharedState::detect().await {
@@ -87,8 +84,7 @@ async fn main() -> Result<(), DynError> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

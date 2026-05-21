@@ -103,7 +103,11 @@ impl BatteryThresholdService {
 
         let snapped = self
             .state
-            .set_intent(Thresholds { start, end, enabled })
+            .set_intent(Thresholds {
+                start,
+                end,
+                enabled,
+            })
             .await?;
 
         info!(

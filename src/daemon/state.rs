@@ -85,7 +85,9 @@ impl SharedState {
     }
 
     pub async fn is_end_only(&self) -> bool {
-        self.with_backend(|b| b.is_end_only()).await.unwrap_or(false)
+        self.with_backend(|b| b.is_end_only())
+            .await
+            .unwrap_or(false)
     }
 
     /// Replace user intent and immediately reconcile to hardware.
@@ -152,9 +154,16 @@ impl SharedState {
         };
 
         if want_engaged && !engaged {
-            info!("hysteresis: capacity={:?}% ≥ end={}%, engaging EC limit", capacity, end);
+            info!(
+                "hysteresis: capacity={:?}% ≥ end={}%, engaging EC limit",
+                capacity, end
+            );
             backend
-                .set_thresholds(Thresholds { start: 0, end, enabled: true })
+                .set_thresholds(Thresholds {
+                    start: 0,
+                    end,
+                    enabled: true,
+                })
                 .await?;
             *self.0.hw_engaged.write().await = true;
         } else if !want_engaged && engaged {
@@ -163,7 +172,11 @@ impl SharedState {
                 capacity, start
             );
             backend
-                .set_thresholds(Thresholds { start: 0, end, enabled: false })
+                .set_thresholds(Thresholds {
+                    start: 0,
+                    end,
+                    enabled: false,
+                })
                 .await?;
             *self.0.hw_engaged.write().await = false;
         } else if want_engaged {
@@ -171,14 +184,22 @@ impl SharedState {
             // after suspend/resume.
             debug!("hysteresis: re-asserting EC limit at {}%", end);
             backend
-                .set_thresholds(Thresholds { start: 0, end, enabled: true })
+                .set_thresholds(Thresholds {
+                    start: 0,
+                    end,
+                    enabled: true,
+                })
                 .await?;
         }
         Ok(())
     }
 
     async fn persist(&self, t: Thresholds) {
-        let state = PersistedState { enabled: t.enabled, start: t.start, end: t.end };
+        let state = PersistedState {
+            enabled: t.enabled,
+            start: t.start,
+            end: t.end,
+        };
         if let Err(e) = write_state(&state).await {
             warn!("failed to persist state: {e}");
         }
