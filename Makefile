@@ -746,20 +746,21 @@ package-deb: build
 	    HSUDO= \
 	    NO_ACTIVATE=1
 	@mkdir -p $(BUILD_DIR)/deb/DEBIAN
-	@printf 'Package: $(PKG_NAME)\n\
-Version: $(PKG_VERSION)\n\
-Section: gnome\n\
-Priority: optional\n\
-Architecture: $(shell dpkg --print-architecture 2>/dev/null || echo amd64)\n\
-Depends: libc6, libglib2.0-0, dbus, policykit-1 | polkitd, systemd, gnome-shell\n\
-Recommends: acpi-call-dkms\n\
-Maintainer: Korrnals <korrnals@gmail.com>\n\
-Homepage: $(PROJECT_URL)\n\
-Description: GNOME Shell extension to control laptop battery charge thresholds\n\
- Limits laptop battery maximum charge level to prolong battery life.\n\
- Includes a privileged Rust daemon communicating via D-Bus and PolicyKit,\n\
- with backends for sysfs, Xiaomi/Redmi (acpi_call), and ThinkPad.\n' \
-	    > $(BUILD_DIR)/deb/DEBIAN/control
+	@{ \
+	    echo 'Package: $(PKG_NAME)'; \
+	    echo 'Version: $(PKG_VERSION)'; \
+	    echo 'Section: gnome'; \
+	    echo 'Priority: optional'; \
+	    echo 'Architecture: $(shell dpkg --print-architecture 2>/dev/null || echo amd64)'; \
+	    echo 'Depends: libc6, libglib2.0-0, dbus, policykit-1 | polkitd, systemd, gnome-shell'; \
+	    echo 'Recommends: acpi-call-dkms'; \
+	    echo 'Maintainer: Korrnals <korrnals@gmail.com>'; \
+	    echo 'Homepage: $(PROJECT_URL)'; \
+	    echo 'Description: GNOME Shell extension to control laptop battery charge thresholds'; \
+	    echo ' Limits laptop battery maximum charge level to prolong battery life.'; \
+	    echo ' Includes a privileged Rust daemon communicating via D-Bus and PolicyKit,'; \
+	    echo ' with backends for sysfs, Xiaomi/Redmi (acpi_call), and ThinkPad.'; \
+	} > $(BUILD_DIR)/deb/DEBIAN/control
 	@printf '#!/bin/sh\nset -e\nglib-compile-schemas /usr/share/glib-2.0/schemas/ || true\nsystemctl daemon-reload || true\n' \
 	    > $(BUILD_DIR)/deb/DEBIAN/postinst
 	@printf '#!/bin/sh\nset -e\nsystemctl stop $(DAEMON_NAME).service 2>/dev/null || true\n' \
