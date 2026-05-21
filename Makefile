@@ -701,7 +701,7 @@ _gen_rpm_spec:
 	@echo 'make build CARGO_BUILD_FLAGS=--offline || make build'
 	@echo ''
 	@echo '%install'
-	@echo 'make install-system DESTDIR=%{buildroot} PREFIX=/usr SYSCONFDIR=/etc'
+	@echo 'make install-system DESTDIR=%{buildroot} PREFIX=/usr SYSCONFDIR=/etc HSUDO='
 	@echo 'mkdir -p %{buildroot}/usr/share/gnome-shell/extensions/$(UUID)'
 	@echo 'cp -r target/extension/* %{buildroot}/usr/share/gnome-shell/extensions/$(UUID)/'
 	@echo ''
@@ -743,6 +743,7 @@ package-deb: build
 	    PREFIX=/usr SYSCONFDIR=/etc \
 	    REAL_HOME=/usr/share \
 	    EXTENSION_DIR=/usr/share/gnome-shell/extensions/$(UUID) \
+	    HSUDO= \
 	    NO_ACTIVATE=1
 	@mkdir -p $(BUILD_DIR)/deb/DEBIAN
 	@printf 'Package: $(PKG_NAME)\n\
