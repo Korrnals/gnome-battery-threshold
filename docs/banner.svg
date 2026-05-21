@@ -76,32 +76,32 @@
   <!-- Subtitle -->
   <text x="168" y="110" font-size="16" fill="#94a3b8"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-    GNOME Shell Extension  ·  Keep your battery healthy. Set it. Forget it.
+    One UI for all vendors  ·  Hardware-aware daemon  ·  Persistent on reboot
   </text>
 
   <!-- Feature pills -->
   <g transform="translate(168, 130)">
     <!-- Pill 1 -->
-    <rect x="0" y="0" width="96" height="26" rx="13" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
-    <text x="48" y="17" font-size="12" text-anchor="middle" fill="#60a5fa" font-family="monospace">sysfs backend</text>
+    <rect x="0" y="0" width="108" height="26" rx="13" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+    <text x="54" y="17" font-size="12" text-anchor="middle" fill="#60a5fa" font-family="monospace">unified UX</text>
 
     <!-- Pill 2 -->
-    <rect x="106" y="0" width="104" height="26" rx="13" fill="#1e3a5f" stroke="#8b5cf6" stroke-width="1"/>
-    <text x="158" y="17" font-size="12" text-anchor="middle" fill="#a78bfa" font-family="monospace">PolicyKit auth</text>
+    <rect x="118" y="0" width="106" height="26" rx="13" fill="#1e3a5f" stroke="#8b5cf6" stroke-width="1"/>
+    <text x="171" y="17" font-size="12" text-anchor="middle" fill="#a78bfa" font-family="monospace">vendor snap</text>
 
     <!-- Pill 3 -->
-    <rect x="220" y="0" width="100" height="26" rx="13" fill="#1e3a5f" stroke="#22c55e" stroke-width="1"/>
-    <text x="270" y="17" font-size="12" text-anchor="middle" fill="#4ade80" font-family="monospace">systemd unit</text>
+    <rect x="234" y="0" width="106" height="26" rx="13" fill="#1e3a5f" stroke="#22c55e" stroke-width="1"/>
+    <text x="287" y="17" font-size="12" text-anchor="middle" fill="#4ade80" font-family="monospace">boot restore</text>
 
     <!-- Pill 4 -->
-    <rect x="330" y="0" width="96" height="26" rx="13" fill="#1e3a5f" stroke="#f59e0b" stroke-width="1"/>
-    <text x="378" y="17" font-size="12" text-anchor="middle" fill="#fbbf24" font-family="monospace">D-Bus API</text>
+    <rect x="350" y="0" width="96" height="26" rx="13" fill="#1e3a5f" stroke="#f59e0b" stroke-width="1"/>
+    <text x="398" y="17" font-size="12" text-anchor="middle" fill="#fbbf24" font-family="monospace">D-Bus API</text>
   </g>
 
-  <!-- Right side: version + author -->
+    <!-- Right side: stable positioning + license -->
   <g transform="translate(720, 60)">
-    <text x="70" y="0" font-size="13" text-anchor="middle" fill="#475569"
-          font-family="monospace">v1.0.0</text>
+      <text x="70" y="0" font-size="13" text-anchor="middle" fill="#475569"
+        font-family="monospace">Open source</text>
     <text x="70" y="22" font-size="13" text-anchor="middle" fill="#475569"
           font-family="monospace">GPL-3.0</text>
   </g>

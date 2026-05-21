@@ -16,7 +16,11 @@ The kernel module `acpi_call` must be loaded. It exposes the
 ### Fedora / RHEL
 
 ```bash
-sudo dnf install acpi_call
+# Enable RPM Fusion first (required for akmod-acpi_call):
+sudo dnf install \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+
+sudo dnf install akmod-acpi_call
 sudo modprobe acpi_call
 echo acpi_call | sudo tee /etc/modules-load.d/acpi_call.conf
 ```

@@ -328,7 +328,7 @@ unit and D-Bus activation file at build time — the source files under
 ```bash
 # Inside a toolbox (has cargo, glib2-devel):
 toolbox enter
-cd ~/LABs/Projects/GnomeBatterySaver
+cd ~/LABs/Projects/BatteryThreshold
 make build
 exit   # leave toolbox
 
