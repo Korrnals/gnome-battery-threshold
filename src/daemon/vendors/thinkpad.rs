@@ -77,6 +77,7 @@ impl VendorBackend for ThinkPadBackend {
     }
 }
 
+#[allow(dead_code)]
 async fn tpacpi_get() -> BackendResult<Thresholds> {
     let start = tpacpi_query("ST").await?;
     let end = tpacpi_query("SP").await?;
@@ -106,6 +107,7 @@ async fn tpacpi_set(t: Thresholds) -> BackendResult<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn tpacpi_query(field: &str) -> BackendResult<u8> {
     let out = Command::new("tpacpi-bat")
         .args(["-g", field, "1"])

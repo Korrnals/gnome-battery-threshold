@@ -100,6 +100,7 @@ impl VendorBackend for SysfsBackend {
     }
 }
 
+#[allow(dead_code)]
 async fn read_percent(path: &Path) -> BackendResult<u8> {
     let raw = fs::read_to_string(path).await?;
     raw.trim().parse::<u8>().map_err(|_| {

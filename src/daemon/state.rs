@@ -84,6 +84,7 @@ impl SharedState {
         *self.0.intent.read().await
     }
 
+    #[allow(dead_code)]
     pub async fn is_end_only(&self) -> bool {
         self.with_backend(|b| b.is_end_only())
             .await

@@ -45,6 +45,7 @@ pub trait VendorBackend: Send + Sync {
 
     /// Read current thresholds from the hardware. May return cached values
     /// for backends that don't expose readback (e.g. Xiaomi).
+    #[allow(dead_code)]
     async fn get_thresholds(&self) -> BackendResult<Thresholds>;
 
     /// Apply thresholds. `enabled = false` resets to the kernel defaults
