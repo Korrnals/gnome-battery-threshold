@@ -315,25 +315,21 @@ class Indicator extends PanelMenu.Button {
         // Suppress unused-var lint for minStart/maxEnd until we use them.
         void minStart; void maxEnd; void start; void end;
 
-        if (enabled)
-            this._icon.add_style_pseudo_class('active');
-        else
-            this._icon.remove_style_pseudo_class('active');
-
-        // Visual cue: limit reached and laptop is running directly off AC
-        // (EC bypass mode — battery is neither charging nor discharging).
-        // Use a real style class name rather than a pseudo-class: St's CSS
-        // engine is finicky about chained pseudo-classes (:active:checked
-        // sometimes failed to apply), and a class name is also easier to
-        // inspect with Looking Glass.
+        // Visual cue: icon colour reflects what's actually happening.
+        // We use inline style (not CSS classes/pseudo-classes) because St's
+        // CSS engine is unreliable for St.Icon — classes and pseudo-classes
+        // often fail to apply or get overridden by the default theme.
         const ac = this._readAcOnline();
         const rawStatus = this._readBatteryStatusRaw();
         const limitReached = enabled && ac &&
             (rawStatus === 'Not charging' || rawStatus === 'Full');
-        if (limitReached)
-            this._icon.add_style_class_name('limit-reached');
-        else
-            this._icon.remove_style_class_name('limit-reached');
+        if (limitReached) {
+            this._icon.set_style('color: #62a0ea;');   // blue — AC bypass
+        } else if (enabled) {
+            this._icon.set_style('color: #57e389;');   // green — charging up to limit
+        } else {
+            this._icon.set_style('');                  // default — no limit
+        }
 
         // Xiaomi (and some other) ECs don't fire a uevent when the EC
         // stops charging, so UPower keeps reporting state=Charging until

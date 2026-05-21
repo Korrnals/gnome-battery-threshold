@@ -10,16 +10,6 @@
     opacity: 0.85;
 }
 
-.battery-threshold-icon:active {
-    opacity: 1;
-    color: #57e389; /* GNOME green — thresholds enforced, charging up */
-}
-
-.battery-threshold-icon.limit-reached {
-    opacity: 1;
-    color: #62a0ea; /* GNOME blue — limit reached, on AC bypass (no battery wear) */
-}
-
 .battery-threshold-icon:disabled {
     opacity: 0.4;
 }
