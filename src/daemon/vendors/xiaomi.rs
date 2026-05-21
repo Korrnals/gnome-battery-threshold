@@ -89,10 +89,6 @@ impl VendorBackend for XiaomiBackend {
         true
     }
 
-    async fn get_thresholds(&self) -> BackendResult<Thresholds> {
-        Ok(*self.cache.lock().await)
-    }
-
     async fn set_thresholds(&self, t: Thresholds) -> BackendResult<()> {
         if !t.enabled {
             // Dedup: if EC already disabled, skip the 2s sleep sequence.

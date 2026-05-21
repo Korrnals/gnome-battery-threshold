@@ -59,23 +59,6 @@ impl VendorBackend for SysfsBackend {
         !self.has_start
     }
 
-    async fn get_thresholds(&self) -> BackendResult<Thresholds> {
-        let end: u8 = read_percent(&self.end_path).await?;
-        let start: u8 = if self.has_start {
-            read_percent(&self.start_path).await?
-        } else {
-            0
-        };
-        // sysfs has no separate "enabled" concept — anything other than 0/100
-        // is considered enabled.
-        let enabled = !(start == 0 && end == 100);
-        Ok(Thresholds {
-            start,
-            end,
-            enabled,
-        })
-    }
-
     async fn set_thresholds(&self, t: Thresholds) -> BackendResult<()> {
         let (start, end) = if t.enabled {
             if t.start >= t.end {
@@ -98,14 +81,6 @@ impl VendorBackend for SysfsBackend {
         debug!("sysfs thresholds applied: {start}-{end}");
         Ok(())
     }
-}
-
-#[allow(dead_code)]
-async fn read_percent(path: &Path) -> BackendResult<u8> {
-    let raw = fs::read_to_string(path).await?;
-    raw.trim().parse::<u8>().map_err(|_| {
-        BackendError::InterfaceMissing(format!("invalid percent value in {}", path.display()))
-    })
 }
 
 async fn write_percent(path: &Path, value: u8) -> BackendResult<()> {

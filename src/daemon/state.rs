@@ -84,13 +84,6 @@ impl SharedState {
         *self.0.intent.read().await
     }
 
-    #[allow(dead_code)]
-    pub async fn is_end_only(&self) -> bool {
-        self.with_backend(|b| b.is_end_only())
-            .await
-            .unwrap_or(false)
-    }
-
     /// Replace user intent and immediately reconcile to hardware.
     /// Returns the snapped intent that was stored.
     pub async fn set_intent(&self, t: Thresholds) -> BackendResult<Thresholds> {
