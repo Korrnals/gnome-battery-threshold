@@ -653,6 +653,7 @@ TARBALL     := dist/$(PKG_NAME)-$(PKG_VERSION).tar.gz
 package-tarball:
 	@printf "$(C_INFO)▸ Creating source tarball$(C_RESET)\n"
 	@mkdir -p dist
+	@mkdir -p $(BUILD_DIR)
 	@git ls-files 2>/dev/null > $(BUILD_DIR)/.tarball-files || \
 	    find . -type f \! -path './target/*' \! -path './dist/*' \! -path './.git/*' \
 	        \! -path './src/daemon/target/*' | sed 's|^\./||' > $(BUILD_DIR)/.tarball-files

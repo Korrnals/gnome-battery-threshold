@@ -4,6 +4,7 @@ target/
 dist/
 *.zip
 Cargo.lock
+!src/daemon/Cargo.lock
 
 # Rust
 **/*.rs.bk
