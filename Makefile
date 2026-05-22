@@ -708,6 +708,7 @@ _gen_rpm_spec:
 	@echo 'make install-system DESTDIR=%{buildroot} PREFIX=/usr SYSCONFDIR=/etc HSUDO='
 	@echo 'mkdir -p %{buildroot}/usr/share/gnome-shell/extensions/$(UUID)'
 	@echo 'cp -r target/extension/* %{buildroot}/usr/share/gnome-shell/extensions/$(UUID)/'
+	@echo 'rm -f %{buildroot}/usr/share/glib-2.0/schemas/gschemas.compiled'
 	@echo ''
 	@echo '%files'
 	@echo '%license LICENSE'
