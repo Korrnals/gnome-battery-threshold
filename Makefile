@@ -709,7 +709,7 @@ _gen_rpm_spec:
 	@echo '%license LICENSE'
 	@echo '%doc README.md CHANGELOG.md'
 	@echo '/usr/libexec/$(DAEMON_NAME)'
-	@echo '/usr/lib/systemd/system/$(DAEMON_NAME).service'
+	@echo '/etc/systemd/system/$(DAEMON_NAME).service'
 	@echo '/etc/dbus-1/system.d/io.github.korrnals.BatteryThreshold.conf'
 	@echo '/usr/share/dbus-1/system-services/io.github.korrnals.BatteryThreshold.service'
 	@echo '/usr/share/polkit-1/actions/io.github.korrnals.BatteryThreshold.policy'
