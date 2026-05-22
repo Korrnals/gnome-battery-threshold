@@ -689,6 +689,7 @@ _gen_rpm_spec:
 	@echo 'Recommends:     gnome-shell'
 	@echo ''
 	@echo '%global debug_package %{nil}'
+	@echo '%global __os_install_post %{nil}'
 	@echo '%global __strip /bin/true'
 	@echo ''
 	@echo '%description'

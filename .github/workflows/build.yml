@@ -135,7 +135,7 @@ jobs:
       - name: Install build deps
         run: |
           dnf install -y rust cargo glib2-devel make systemd dbus-devel \
-                         rpm-build rpmdevtools zip git tar
+                         rpm-build rpmdevtools systemd-rpm-macros zip git tar
       - name: Build RPM
         run: make package-rpm
       - uses: actions/upload-artifact@v4
