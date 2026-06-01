@@ -3,7 +3,7 @@
   "name": "Battery Threshold",
   "description": "Control laptop battery charge thresholds to prolong battery life. Supports standard sysfs, Xiaomi (acpi_call), ThinkPad, and more.",
   "version": 1,
-  "shell-version": ["45", "46", "47", "48", "49"],
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/Korrnals/gnome-battery-threshold",
   "settings-schema": "io.github.korrnals.BatteryThreshold",
   "gettext-domain": "battery-threshold",

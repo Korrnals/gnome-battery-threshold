@@ -8,7 +8,7 @@ A GNOME Shell extension for managing laptop battery charge thresholds. Prolongs 
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
-[![GNOME Shell](https://img.shields.io/badge/GNOME-45--49-4A86CF.svg?logo=gnome&logoColor=white)](https://www.gnome.org/)
+[![GNOME Shell](https://img.shields.io/badge/GNOME-45--50-4A86CF.svg?logo=gnome&logoColor=white)](https://www.gnome.org/)
 [![Build](https://img.shields.io/github/actions/workflow/status/Korrnals/gnome-battery-threshold/build.yml?branch=main&label=CI)](https://github.com/Korrnals/gnome-battery-threshold/actions)
 [![Made with ❤️ by Korrnals](https://img.shields.io/badge/made%20by-Korrnals-blueviolet)](https://github.com/Korrnals)
 

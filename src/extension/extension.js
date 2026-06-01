@@ -321,7 +321,7 @@ class Indicator extends PanelMenu.Button {
         }
 
         this._setControlsSensitive(true);
-        this._enableSwitch.setToggleState(enabled);
+        this._enableSwitch.state = enabled;
 
         // GSettings is the source of truth for *user intent*. We do NOT
         // sync daemon → settings here — that would race against an Apply
@@ -515,7 +515,6 @@ class Indicator extends PanelMenu.Button {
 
     _notify(message) {
         const source = new MessageTray.Source({
-            title: _('Battery Threshold'),
             iconName: 'battery-good-symbolic',
         });
         Main.messageTray.add(source);
@@ -523,9 +522,15 @@ class Indicator extends PanelMenu.Button {
             source,
             title: _('Battery Threshold'),
             body: message,
-            isTransient: true,
         });
         source.addNotification(notification);
+        // Auto-dismiss after 4s to mimic transient behavior (GNOME 50 removed
+        // the isTransient property; notifications are now resident by default).
+        GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 4, () => {
+            if (!source._inDestruction)
+                source.destroy();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     destroy() {

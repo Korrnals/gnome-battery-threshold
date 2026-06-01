@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GNOME Shell 50 support (`"50"` added to `shell-version` in `metadata.json`).
 - Rewritten Rust D-Bus daemon (`battery-thresholdd`) replacing the
   previous Python backend.
 - Vendor abstraction with backends for standard sysfs, Xiaomi (via
@@ -19,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Makefile-driven build, install, lint and test workflow.
 - Documentation: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`,
   `docs/ADDING_VENDORS.md`, `docs/vendors/xiaomi.md`.
+
+### Fixed
+- `PopupSwitchMenuItem.setToggleState()` replaced with direct `state`
+  assignment for GNOME 50 compatibility (the old method relied on a
+  JS getter/setter that no longer works in the new GObject bindings).
+- `MessageTray.Source` constructor no longer accepts `title` (removed
+  in GNOME 50); only `iconName` is passed now.
+- `MessageTray.Notification` no longer has `isTransient` property
+  (removed in GNOME 50); transient behavior is emulated with a 4-second
+  auto-dismiss timer.
 
 ### Changed
 - Extension UUID changed to `battery-threshold@korrnals.github.io` for
