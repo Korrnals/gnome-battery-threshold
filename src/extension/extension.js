@@ -80,6 +80,7 @@ class Indicator extends PanelMenu.Button {
         this._proxy = null;
         this._supported = false;
         this._refreshSourceId = 0;
+        this._reconnectSourceId = 0;
         this._signalIds = [];
         // Re-entrancy guard: set while we update UI from daemon state so
         // that programmatic slider/toggle updates don't fire user-action
@@ -252,7 +253,11 @@ class Indicator extends PanelMenu.Button {
                 if (error) {
                     this._statusItem.label.text = _('Daemon unavailable');
                     this._setControlsSensitive(false);
-                    console.error(`BatteryThreshold: ${error.message}`);
+                    console.error(`BatteryThreshold: proxy error: ${error.message}`);
+                    // The daemon may simply not have claimed the name yet
+                    // (race at login). Retry every few seconds instead of
+                    // staying stuck in "unavailable" forever.
+                    this._scheduleReconnect();
                     return;
                 }
                 this._proxy = proxy;
@@ -273,6 +278,21 @@ class Indicator extends PanelMenu.Button {
                 ));
                 this._refreshFromProxy();
                 this._startPeriodicRefresh();
+            },
+        );
+    }
+
+    _scheduleReconnect() {
+        if (this._reconnectSourceId)
+            return;
+        this._reconnectSourceId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT,
+            3,
+            () => {
+                this._reconnectSourceId = 0;
+                if (!this._proxy)
+                    this._connectProxy();
+                return GLib.SOURCE_REMOVE;
             },
         );
     }
@@ -313,6 +333,8 @@ class Indicator extends PanelMenu.Button {
         const live = this._readBatteryState();
         const liveSuffix = live ? ` — ${live}` : '';
         if (enabled) {
+            const start = this._proxy.Start ?? 0;
+            const end = this._proxy.End ?? 100;
             this._statusItem.label.text =
                 _('Active: %d%%–%d%% (%s)').format(start, end, vendor) + liveSuffix;
         } else {
@@ -554,6 +576,10 @@ class Indicator extends PanelMenu.Button {
         if (this._sysfsTickSourceId) {
             GLib.source_remove(this._sysfsTickSourceId);
             this._sysfsTickSourceId = 0;
+        }
+        if (this._reconnectSourceId) {
+            GLib.source_remove(this._reconnectSourceId);
+            this._reconnectSourceId = 0;
         }
         if (this._proxy) {
             for (const id of this._signalIds) {

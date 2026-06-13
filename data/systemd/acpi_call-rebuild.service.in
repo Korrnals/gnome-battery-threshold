@@ -1,0 +1,26 @@
+[Unit]
+Description=Rebuild acpi_call kernel module for the running kernel
+Documentation=https://github.com/Korrnals/gnome-battery-threshold
+# This is an EARLY-boot oneshot: it must run *before* systemd-modules-load.service
+# so that /etc/modules-load.d/acpi_call.conf finds a freshly-built module after a
+# kernel update. systemd-modules-load.service is pulled in by sysinit.target, so we
+# MUST opt out of the default dependencies — otherwise the implicit
+# After=sysinit.target combined with Before=systemd-modules-load.service forms an
+# ordering cycle. systemd resolves such a cycle by DROPPING systemd-modules-load
+# entirely, which silently disables auto-loading of *every* configured module.
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-modules-load.service sysinit.target
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Rebuild only when the module is missing for the running kernel. We probe with
+# `modinfo -k`, which searches extra/, updates/ and weak-updates/, so a module
+# already shipped (e.g. in extra/) is accepted and we don't rebuild on every boot.
+ExecStart=/bin/bash -c 'KVER=$(uname -r); if ! /sbin/modinfo -k "$KVER" acpi_call >/dev/null 2>&1; then cd @ACPI_CALL_BUILD_DIR@ && make clean && make KDIR=/usr/src/kernels/$KVER && make KDIR=/usr/src/kernels/$KVER install && depmod -a "$KVER"; fi'
+
+[Install]
+WantedBy=multi-user.target

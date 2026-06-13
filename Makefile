@@ -81,6 +81,10 @@ GEN_DIR         := $(BUILD_DIR)/generated
 ACPI_CALL_COPR    ?= rhea/acpi_call
 ACPI_CALL_PKG     ?= acpi_call-dkms
 ACPI_CALL_GIT_URL ?= https://github.com/nix-community/acpi_call.git
+# Persistent location for the acpi_call sources, kept on the host so the
+# acpi_call-rebuild.service can recompile the module after a kernel update
+# (the build itself happens in a throwaway dir; this is the long-lived copy).
+ACPI_CALL_BUILD_DIR ?= $(REAL_HOME)/.cache/acpi_call-build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Distro / hardware detection
@@ -125,7 +129,7 @@ endif
         _try-enable-extension enable-extension uninstall \
         reload restart test lint dist clean probe \
         daemon-dev check-root _check_installed \
-        package-rpm package-deb package-tarball
+        package-rpm package-deb package-tarball install-acpi-rebuild
 
 all: build
 
@@ -323,6 +327,9 @@ generate:
 	@sed 's|/usr/libexec/$(DAEMON_NAME)|$(LIBEXECDIR)/$(DAEMON_NAME)|g' \
 	    data/dbus/io.github.korrnals.BatteryThreshold.service \
 	    > $(GEN_DIR)/io.github.korrnals.BatteryThreshold.service
+	@sed 's|@ACPI_CALL_BUILD_DIR@|$(ACPI_CALL_BUILD_DIR)|g' \
+	    data/systemd/acpi_call-rebuild.service.in \
+	    > $(GEN_DIR)/acpi_call-rebuild.service
 
 # ─────────────────────────────────────────────────────────────────────────────
 # install / uninstall
@@ -519,14 +526,43 @@ install-extension: extension
 	    $(HSUDO) chown -R $(SUDO_USER): "$(EXTENSION_DIR)"; \
 	fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# install-acpi-rebuild — OPTIONAL. Installs + enables acpi_call-rebuild.service,
+# which recompiles acpi_call after a kernel update so /etc/modules-load.d keeps
+# auto-loading it. The generated unit uses DefaultDependencies=no to avoid the
+# ordering cycle with systemd-modules-load.service that would otherwise cause
+# systemd to drop module auto-loading entirely.
+#
+# Only meaningful on systems whose *host* can build kernel modules (kernel-devel
+# + gcc + make present at boot). On stock atomic Fedora the host lacks that
+# tooling — prefer the rpm-ostree-layered kmod (default install path) or
+# akmod-acpi_call from RPM Fusion instead.
+# ─────────────────────────────────────────────────────────────────────────────
+install-acpi-rebuild: check-root generate
+	@if [ ! -d "$(ACPI_CALL_BUILD_DIR)" ]; then \
+	    printf "$(C_INFO)▸ Cloning acpi_call sources → $(ACPI_CALL_BUILD_DIR)$(C_RESET)\n"; \
+	    git clone --depth 1 "$(ACPI_CALL_GIT_URL)" "$(ACPI_CALL_BUILD_DIR)" \
+	        || { printf "$(C_ERR)  git clone failed.$(C_RESET)\n"; exit 1; }; \
+	else \
+	    printf "$(C_INFO)▸ Using existing acpi_call sources at $(ACPI_CALL_BUILD_DIR)$(C_RESET)\n"; \
+	fi
+	@printf "$(C_INFO)▸ Installing acpi_call-rebuild.service → $(SYSTEMD_DIR)$(C_RESET)\n"
+	$(HSUDO) install -Dm644 $(GEN_DIR)/acpi_call-rebuild.service \
+	    $(DESTDIR)$(SYSTEMD_DIR)/acpi_call-rebuild.service
+	@$(HSUDO) systemctl daemon-reload
+	@$(HSUDO) systemctl enable acpi_call-rebuild.service \
+	    && printf "$(C_OK)✓ acpi_call-rebuild.service enabled.$(C_RESET)\n" \
+	    || printf "$(C_WARN)⚠ Could not enable acpi_call-rebuild.service.$(C_RESET)\n"
+
 uninstall: check-root
 	@printf "$(C_INFO)▸ Stopping daemon$(C_RESET)\n"
 	-$(HSUDO) systemctl disable --now $(DAEMON_NAME).service 2>/dev/null || true
 	@printf "$(C_INFO)▸ Removing system files$(C_RESET)\n"
 	$(HSUDO) rm -f $(DESTDIR)$(LIBEXECDIR)/$(DAEMON_NAME)
+	-$(HSUDO) systemctl disable --now acpi_call-rebuild.service 2>/dev/null || true
+	$(HSUDO) rm -f $(DESTDIR)$(SYSTEMD_DIR)/acpi_call-rebuild.service
 	$(HSUDO) rm -f $(DESTDIR)$(SYSTEMD_DIR)/$(DAEMON_NAME).service
 	$(HSUDO) rm -f $(DESTDIR)$(DBUS_SYSTEM_DIR)/io.github.korrnals.BatteryThreshold.conf
-	$(HSUDO) rm -f $(DESTDIR)$(DBUS_SERVICES)/io.github.korrnals.BatteryThreshold.service
 	$(HSUDO) rm -f $(DESTDIR)$(POLKIT_DIR)/io.github.korrnals.BatteryThreshold.policy
 	$(HSUDO) rm -f $(DESTDIR)$(GSCHEMA_DIR)/io.github.korrnals.BatteryThreshold.gschema.xml
 	-$(HSUDO) glib-compile-schemas $(DESTDIR)$(GSCHEMA_DIR) 2>/dev/null || true
