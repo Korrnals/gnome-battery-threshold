@@ -154,12 +154,12 @@ make deps
 ### Fedora (standard, mutable `/usr`)
 
 ```bash
-# 1. Enable RPM Fusion (free tier):
-sudo dnf install \
-  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+# 1. Enable COPR rhea/acpi_call:
+sudo dnf install -y dnf-plugins-core
+sudo dnf copr enable rhea/acpi_call
 
 # 2. Install the DKMS module:
-sudo dnf install akmod-acpi_call
+sudo dnf install acpi_call-dkms kernel-devel
 
 # 3. Load now (without reboot):
 sudo modprobe acpi_call
@@ -171,21 +171,22 @@ test -e /proc/acpi/call && echo "OK — acpi_call is active"
 ### Fedora Silverblue / Kinoite (immutable)
 
 Because the rootfs is read-only, kernel modules must be layered via
-`rpm-ostree`, which **requires two reboots**:
+`rpm-ostree`, but DKMS `%post` cannot write to `/var/lib/dkms` during
+compose on Atomic systems. Use the project out-of-tree flow instead:
 
 ```bash
-# 1. Layer RPM Fusion:
-sudo rpm-ostree install \
-  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+# 1. Build out-of-tree and layer as local kmod RPM:
+BATTERY_THRESHOLD_AUTO_DEPS=1 sudo make install-deps
+
+# 2. Reboot into the staged deployment:
 sudo systemctl reboot
 
-# 2. Layer the module (now that RPM Fusion is available):
-sudo rpm-ostree install akmod-acpi_call
-sudo systemctl reboot
-
-# 3. After second reboot, verify:
+# 3. After reboot, verify:
 test -e /proc/acpi/call && echo "OK — acpi_call is active"
 ```
+
+For technical rationale and alternatives, see ADR-0001 in
+`docs/adr/ADR-0001-acpi-call-atomic-fedora.md`.
 
 ### Ubuntu / Debian
 
