@@ -75,8 +75,8 @@ GEN_DIR         := $(BUILD_DIR)/generated
 # On rpm-ostree atomic, DKMS cannot run in the compose sandbox (writes to
 # /var/lib/dkms which is read-only during compose), and no akmod build exists
 # for current Fedora releases. We instead build acpi_call.ko out-of-tree
-# (inside the distrobox container) and drop it into the host's mutable
-# /var/lib/modules/<kver>/extra/, which modprobe picks up after depmod.
+# (inside the distrobox container) and wrap it as a local kmod RPM layered via
+# rpm-ostree.
 # ─────────────────────────────────────────────────────────────────────────────
 ACPI_CALL_COPR    ?= rhea/acpi_call
 ACPI_CALL_PKG     ?= acpi_call-dkms
@@ -263,18 +263,18 @@ deps:
 	case "$(OS_ID)" in \
 	        fedora) \
 	            if [ "$(OS_VARIANT)" = "silverblue" ] || [ "$(OS_VARIANT)" = "kinoite" ] || [ "$(OS_VARIANT)" = "sericea" ]; then \
-	                printf "$(C_INFO)Fedora Atomic ($(OS_VARIANT)) — via rpm-ostree:$(C_RESET)\n"; \
-	                printf "  1. Enable RPM Fusion (free):\n"; \
-	                printf "     $(C_BOLD)sudo rpm-ostree install \\\\\n        https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(OS_VERSION).noarch.rpm$(C_RESET)\n"; \
+	                printf "$(C_INFO)Fedora Atomic ($(OS_VARIANT)) — DKMS is not supported inside rpm-ostree compose.$(C_RESET)\n"; \
+	                printf "  Use the built-in out-of-tree flow instead:\n"; \
+	                printf "  1. $(C_BOLD)BATTERY_THRESHOLD_AUTO_DEPS=1 sudo make install-deps$(C_RESET)\n"; \
+	                printf "     (builds acpi_call.ko in container, wraps it as local kmod RPM, layers via rpm-ostree)\n"; \
 	                printf "  2. $(C_BOLD)sudo systemctl reboot$(C_RESET)\n"; \
-	                printf "  3. $(C_BOLD)sudo rpm-ostree install akmod-acpi_call$(C_RESET)\n"; \
-	                printf "  4. $(C_BOLD)sudo systemctl reboot$(C_RESET)\n"; \
+	                printf "  3. verify: $(C_BOLD)test -e /proc/acpi/call && echo OK$(C_RESET)\n"; \
 	            else \
-	                printf "$(C_INFO)Fedora — via dnf:$(C_RESET)\n"; \
-	                printf "  1. RPM Fusion (free):\n"; \
-	                printf "     $(C_BOLD)sudo dnf install \\\\\n        https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(OS_VERSION).noarch.rpm$(C_RESET)\n"; \
-	                printf "  2. $(C_BOLD)sudo dnf install akmod-acpi_call$(C_RESET)\n"; \
-	                printf "  3. Reboot or: $(C_BOLD)sudo modprobe acpi_call$(C_RESET)\n"; \
+	                printf "$(C_INFO)Fedora — via dnf + COPR:$(C_RESET)\n"; \
+	                printf "  1. $(C_BOLD)sudo dnf install -y dnf-plugins-core$(C_RESET)\n"; \
+	                printf "  2. $(C_BOLD)sudo dnf copr enable rhea/acpi_call$(C_RESET)\n"; \
+	                printf "  3. $(C_BOLD)sudo dnf install acpi_call-dkms kernel-devel$(C_RESET)\n"; \
+	                printf "  4. Reboot or: $(C_BOLD)sudo modprobe acpi_call$(C_RESET)\n"; \
 	            fi ;; \
 	        ubuntu|debian|linuxmint|pop) \
 	            printf "$(C_INFO)Debian / Ubuntu:$(C_RESET)\n"; \
@@ -392,9 +392,8 @@ install-deps:
 	    fedora) \
 	        if [ "$(OS_VARIANT)" = "silverblue" ] || [ "$(OS_VARIANT)" = "kinoite" ] || [ "$(OS_VARIANT)" = "sericea" ]; then \
 	            if [ "$(IS_DISTROBOX)" != "yes" ]; then \
-	                printf "$(C_ERR)  On rpm-ostree atomic systems the acpi_call module must be built$(C_RESET)\n"; \
-	                printf "$(C_ERR)  out-of-tree. Re-run 'sudo make install-deps' from inside a distrobox$(C_RESET)\n"; \
-	                printf "$(C_ERR)  or toolbox container (where kernel-devel can be installed).$(C_RESET)\n"; \
+	                printf "$(C_ERR)  On rpm-ostree atomic systems acpi_call must be built out-of-tree$(C_RESET)\n"; \
+	                printf "$(C_ERR)  from inside a distrobox/toolbox container. Re-run there with sudo.$(C_RESET)\n"; \
 	                exit 1; \
 	            fi; \
 	            KVER=$$($(HOST_EXEC) uname -r 2>/dev/null); \
@@ -529,14 +528,13 @@ install-extension: extension
 # ─────────────────────────────────────────────────────────────────────────────
 # install-acpi-rebuild — OPTIONAL. Installs + enables acpi_call-rebuild.service,
 # which recompiles acpi_call after a kernel update so /etc/modules-load.d keeps
-# auto-loading it. The generated unit uses DefaultDependencies=no to avoid the
-# ordering cycle with systemd-modules-load.service that would otherwise cause
-# systemd to drop module auto-loading entirely.
+# auto-loading it.
 #
-# Only meaningful on systems whose *host* can build kernel modules (kernel-devel
-# + gcc + make present at boot). On stock atomic Fedora the host lacks that
-# tooling — prefer the rpm-ostree-layered kmod (default install path) or
-# akmod-acpi_call from RPM Fusion instead.
+# This is only needed for custom out-of-tree builds.
+#
+# On stock Atomic Fedora hosts, kernel-devel/gcc/make are usually absent at boot,
+# so this rebuild unit may fail there unless the host has a full build toolchain.
+# The default/recommended path remains the layered kmod RPM from install-deps.
 # ─────────────────────────────────────────────────────────────────────────────
 install-acpi-rebuild: check-root generate
 	@if [ ! -d "$(ACPI_CALL_BUILD_DIR)" ]; then \
